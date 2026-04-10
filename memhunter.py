@@ -50,6 +50,44 @@ VOL_CMD   = None          # path to vol / vol3 / python3 vol.py
 console = Console(highlight=False) if RICH else None
 
 
+# ---------------------------------------------------------------------------
+# Resolve real user home even when launched with sudo
+# ---------------------------------------------------------------------------
+def _real_home() -> Path:
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user:
+        import pwd
+        try:
+            return Path(pwd.getpwnam(sudo_user).pw_dir)
+        except KeyError:
+            pass
+    return Path.home()
+
+
+def _is_externally_managed() -> bool:
+    """Return True if pip is blocked by PEP 668 on this system."""
+    import sys as _sys
+    ver = f"{_sys.version_info.major}.{_sys.version_info.minor}"
+    return (
+        Path(f"/usr/lib/python{ver}/EXTERNALLY-MANAGED").exists()
+        or Path("/usr/lib/python3/EXTERNALLY-MANAGED").exists()
+    )
+
+
+def _venv_dir() -> Path:
+    return _real_home() / ".venv" / "memhunter"
+
+
+def _pip_cmd() -> list:
+    """Return the pip command to use — venv pip or system pip3."""
+    venv_pip = _venv_dir() / "bin" / "pip"
+    if venv_pip.exists():
+        return [str(venv_pip)]
+    if _is_externally_managed():
+        return []          # no usable pip yet
+    return [sys.executable, "-m", "pip"]
+
+
 # ===========================================================================
 # I/O helpers
 # ===========================================================================
@@ -113,42 +151,73 @@ def confirm(prompt: str, default: bool = True) -> bool:
 
 def find_volatility() -> str | None:
     """Return the command string to invoke Volatility 3, or None."""
+    real_home = _real_home()
+
+    # 1. Wrapper scripts on PATH or in ~/.local/bin
     for name in ("vol3", "vol", "volatility3", "volatility"):
         if shutil.which(name):
             return name
 
-    user_bin = Path.home() / ".local" / "bin"
     for name in ("vol3", "vol"):
-        p = user_bin / name
+        p = real_home / ".local" / "bin" / name
         if p.exists():
             return str(p)
 
-    for candidate in (
-        Path.cwd() / "volatility3" / "vol.py",
+    # 2. venv python + vol.py
+    venv_python = _venv_dir() / "bin" / "python3"
+    for vol_py in (
+        real_home / "volatility3" / "vol.py",
         Path("/opt/volatility3/vol.py"),
-        Path.home() / "volatility3" / "vol.py",
         Path("/tools/volatility3/vol.py"),
+        Path.cwd() / "volatility3" / "vol.py",
     ):
-        if candidate.exists():
-            return f"python3 {candidate}"
+        if vol_py.exists():
+            py = str(venv_python) if venv_python.exists() else "python3"
+            return f"{py} {vol_py}"
 
     return None
 
 
 def install_volatility() -> bool:
-    """Clone and pip-install Volatility 3. Returns True on success."""
+    """Clone and install Volatility 3, using a venv if PEP 668 is active."""
     cprint("\n[*] Installing Volatility 3 …", "yellow")
-    target = Path.home() / "volatility3"
 
-    if target.exists():
-        cprint(f"[*] {target} already exists — pulling latest changes …", "dim")
-        r = subprocess.run(["git", "-C", str(target), "pull"],
-                           capture_output=True, text=True)
-        cprint(r.stdout.strip() or "up-to-date", "dim")
-    else:
-        cprint("  → Cloning repository …", "dim")
+    real_home = _real_home()
+    target    = real_home / "volatility3"
+    venv      = _venv_dir()
+    ext_mgd   = _is_externally_managed()
+
+    # ── Step 1: create venv if needed ──────────────────────────────────────
+    if ext_mgd and not (venv / "bin" / "pip").exists():
+        cprint(f"  → Creating Python venv at {venv} …", "dim")
         r = subprocess.run(
-            ["git", "clone", "https://github.com/volatilityfoundation/volatility3.git",
+            [sys.executable, "-m", "venv", str(venv), "--system-site-packages"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            cprint(f"[!] venv creation failed:\n{r.stderr[:300]}", "red")
+            return False
+        cprint("  [+] Venv created.", "dim")
+
+    # Choose the right pip
+    if ext_mgd:
+        pip_exe = [str(venv / "bin" / "pip")]
+        py_exe  = str(venv / "bin" / "python3")
+    else:
+        pip_exe = [sys.executable, "-m", "pip"]
+        py_exe  = sys.executable
+
+    # ── Step 2: clone or update ────────────────────────────────────────────
+    if (target / ".git").exists():
+        cprint(f"  → Updating existing clone at {target} …", "dim")
+        r = subprocess.run(["git", "-C", str(target), "pull", "--quiet"],
+                           capture_output=True, text=True)
+        cprint(r.stdout.strip() or "  Already up to date.", "dim")
+    else:
+        cprint("  → Cloning Volatility 3 …", "dim")
+        r = subprocess.run(
+            ["git", "clone", "--quiet",
+             "https://github.com/volatilityfoundation/volatility3.git",
              str(target)],
             capture_output=True, text=True,
         )
@@ -156,37 +225,45 @@ def install_volatility() -> bool:
             cprint(f"[!] git clone failed:\n{r.stderr[:400]}", "red")
             return False
 
+    # ── Step 3: pip install into correct environment ───────────────────────
     cprint("  → Installing Python package …", "dim")
     r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", str(target), "--quiet"],
+        pip_exe + ["install", "-e", str(target), "--quiet"],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
         cprint(f"[!] pip install failed:\n{r.stderr[:400]}", "red")
         return False
 
-    # Download community symbol packs
-    cprint("  → Downloading Linux/Mac symbol packs …", "dim")
+    # ── Step 4: create ~/.local/bin/vol wrapper ────────────────────────────
+    local_bin = real_home / ".local" / "bin"
+    local_bin.mkdir(parents=True, exist_ok=True)
+    vol_wrapper = local_bin / "vol"
+    vol_wrapper.write_text(
+        f"#!/usr/bin/env bash\nexec \"{py_exe}\" \"{target}/vol.py\" \"$@\"\n"
+    )
+    vol_wrapper.chmod(0o755)
+    cprint(f"  [+] Wrapper created: {vol_wrapper}", "dim")
+
+    # ── Step 5: symbol packs ───────────────────────────────────────────────
     sym_dir = target / "volatility3" / "symbols"
     sym_dir.mkdir(exist_ok=True)
-    packs = [
-        ("linux", "https://downloads.volatilityfoundation.org/volatility3/symbols/linux.zip"),
-        ("mac",   "https://downloads.volatilityfoundation.org/volatility3/symbols/mac.zip"),
-    ]
-    for name, url in packs:
-        dest = sym_dir / f"{name}.zip"
-        if dest.exists():
-            cprint(f"  [skip] {name}.zip already present", "dim")
-            continue
-        r = subprocess.run(["curl", "-L", "-o", str(dest), url],
-                           capture_output=True)
+    cprint("  → Downloading Linux symbol pack …", "dim")
+    dest = sym_dir / "linux.zip"
+    if not dest.exists():
+        r = subprocess.run(
+            ["curl", "-L", "--silent", "--show-error", "-o", str(dest),
+             "https://downloads.volatilityfoundation.org/volatility3/symbols/linux.zip"],
+            capture_output=True,
+        )
         if r.returncode == 0:
-            cprint(f"  [+] Downloaded {name}.zip", "dim")
+            cprint("  [+] linux.zip downloaded.", "dim")
         else:
-            cprint(f"  [!] Could not download {name}.zip (non-fatal)", "yellow")
+            cprint("  [!] Could not download linux.zip (non-fatal).", "yellow")
+    else:
+        cprint("  [skip] linux.zip already present.", "dim")
 
-    cprint("[+] Volatility 3 installed successfully!", "bold green")
-    cprint(f"    Location: {target}", "dim")
+    cprint(f"[+] Volatility 3 installed → {target}", "bold green")
     return True
 
 
