@@ -1,141 +1,225 @@
 # linux-mem-forensics
 
-A Linux Loadable Kernel Module (LKM) that performs forensic-grade physical memory acquisition. It produces a raw dump of System RAM suitable for analysis with tools such as [Volatility 3](https://github.com/volatilityfoundation/volatility3), [Rekall](https://github.com/google/rekall), or any hex editor.
+A two-part Linux memory forensics toolkit:
 
-## Why a Kernel Module?
+| Component | Purpose |
+|---|---|
+| **`memdump.ko`** | Linux LKM — forensic-grade physical memory *acquisition* |
+| **`memhunter.py`** | Interactive CLI — memory dump *analysis* (CTF-focused) |
 
-User-space tools can read `/dev/mem` or `/proc/kcore`, but modern kernels restrict both by default (`CONFIG_STRICT_DEVMEM`, `CONFIG_LOCKDOWN_LSM`). A loadable kernel module runs at ring 0 and can safely map physical memory through `ioremap_cache()` — the same primitive the kernel itself uses — bypassing these restrictions while remaining read-only.
+---
 
-## Features
+## Quick Start (CTF / Analysis)
+
+```bash
+# 1. Clone
+git clone https://github.com/MohdAlkafaween/linux-mem-forensics
+cd linux-mem-forensics
+
+# 2. One-shot setup (installs Volatility 3 + deps)
+chmod +x install.sh
+sudo ./install.sh
+
+# 3. Analyse a memory dump interactively
+python3 memhunter.py /path/to/dump.raw
+```
+
+---
+
+## memhunter.py — Interactive Analysis Tool
+
+```
+  __  __                _   _             _
+ |  \/  | ___ _ __ ___ | | | |_   _ _ __ | |_ ___ _ __
+ | |\/| |/ _ \ '_ ` _ \| |_| | | | | '_ \| __/ _ \ '__|
+ | |  | |  __/ | | | | |  _  | |_| | | | | ||  __/ |
+ |_|  |_|\___|_| |_| |_|_| |_|\__,_|_| |_|\__\___|_|
+
+  Linux Memory Forensics — CTF Edition  v2.0.0
+```
+
+### Features
+
+- **Guided menus** — no need to memorise plugin names
+- **Quick Triage** — 10 essential plugins in one shot
+- **Process / Network / File / Kernel analysis** sections
+- **Flag & credential hunter** — sweeps envars, bash history, raw strings
+- **Base64 decoder** — finds and decodes blobs inline
+- **Raw strings search** — flag patterns, IPs, URLs, SSH keys without Volatility
+- **Built-in cheat sheets** — Volatility 3 reference, CTF workflow, tools guide
+- **Auto-save** — every result written to a timestamped `results_*/` directory
+- **Volatility 3 installer** — clones and installs with symbol packs in one step
+
+### Usage
+
+```bash
+python3 memhunter.py                        # interactive, prompts for dump
+python3 memhunter.py dump.raw               # load dump on startup
+python3 memhunter.py --install              # install/update Volatility 3
+```
+
+### Menu Overview
+
+```
+  [  1]  Quick Triage            Auto-run essential plugins in one shot
+  [  2]  Process Analysis        pslist, pstree, cmdline, envars
+  [  3]  Network Analysis        netstat, sockstat, connection forensics
+  [  4]  File System Hunting     find_file, inode cache, VFS artefacts
+  [  5]  Credential & Flag Hunt  bash history, env vars, raw strings
+  [  6]  Kernel / Rootkit Check  lsmod, syscall table, IDT hooks
+  [  7]  Strings Search          Grep raw dump without Volatility
+  [  8]  Custom Plugin           Run any Volatility plugin manually
+
+  [cs1]  Cheat Sheet: Volatility 3
+  [cs2]  Cheat Sheet: CTF Workflow
+  [cs3]  Cheat Sheet: Strings/grep
+  [cs4]  Cheat Sheet: Tools
+
+  [  i]  Install / Update Volatility 3
+  [  d]  Change dump file
+  [  q]  Quit
+```
+
+### Requirements
+
+- Python 3.10+
+- [`rich`](https://github.com/Textualize/rich) — `pip3 install rich` (pre-installed on Kali)
+- [Volatility 3](https://github.com/volatilityfoundation/volatility3) — installed by `install.sh` or option `[i]`
+- `strings`, `grep` — standard Linux utilities (always present)
+
+---
+
+## memdump.ko — Physical Memory Acquisition Module
+
+A Linux Loadable Kernel Module that performs forensic-grade physical memory
+acquisition, producing a raw dump suitable for Volatility 3, Rekall, or any
+hex editor.
+
+### Why a Kernel Module?
+
+User-space tools can read `/dev/mem` or `/proc/kcore`, but modern kernels
+restrict both (`CONFIG_STRICT_DEVMEM`, `CONFIG_LOCKDOWN_LSM`). An LKM runs at
+ring 0 and safely maps physical memory through `ioremap_cache()` — bypassing
+these restrictions while remaining read-only.
+
+### Features
 
 | Feature | Detail |
 |---|---|
-| **Read-only access** | The module never modifies kernel structures or physical pages. |
-| **System RAM awareness** | Only dumps ranges reported as "System RAM" in `/proc/iomem`, skipping MMIO, ACPI, and PCI regions. |
-| **SHA-256 integrity hash** | A running hash is computed during acquisition and printed to `dmesg` on completion, providing a chain-of-custody anchor. |
-| **Error-tolerant** | Unmappable pages are replaced with zeroes so file offsets stay aligned to physical addresses. |
-| **Minimal footprint** | Uses a single page-sized bounce buffer — no large allocations. |
-| **Configurable output path** | Pass `dump_path=` at load time. |
+| **Read-only access** | Never modifies kernel structures or physical pages |
+| **System RAM only** | Skips MMIO, ACPI, PCI — only dumps real DRAM |
+| **SHA-256 integrity** | Hash computed during acquisition, printed to dmesg |
+| **Error-tolerant** | Unmappable pages replaced with zeroes (offsets stay aligned) |
+| **Configurable path** | `dump_path=` parameter at load time |
 
-## Prerequisites
-
-You need a Linux system with:
-
-- **Kernel headers** for your running kernel
-- **Build toolchain** (`make`, `gcc`)
-
-### Debian / Ubuntu
+### Prerequisites
 
 ```bash
-sudo apt-get update
+# Debian / Ubuntu / Kali
 sudo apt-get install build-essential linux-headers-$(uname -r)
-```
 
-### RHEL / CentOS / Fedora
-
-```bash
+# RHEL / CentOS / Fedora
 sudo dnf install gcc make kernel-devel-$(uname -r)
-```
 
-### Arch Linux
-
-```bash
+# Arch
 sudo pacman -S base-devel linux-headers
 ```
 
-## Compilation
+### Build
 
 ```bash
-cd linux-mem-forensics
 make
-```
-
-This produces `memdump.ko` in the current directory. To target a different kernel version or a cross-compile build tree:
-
-```bash
+# Cross-compile / custom kernel:
 make KDIR=/path/to/kernel/build
 ```
 
-## Usage
-
-### 1. Load the Module (Start Acquisition)
-
-The dump runs entirely during module insertion, so `insmod` will block until the acquisition is complete.
-
-**Default output** (`/tmp/memdump.raw`):
+### Acquire Memory
 
 ```bash
+# Default output: /tmp/memdump.raw
 sudo insmod memdump.ko
-```
 
-**Custom output path:**
-
-```bash
+# Custom path
 sudo insmod memdump.ko dump_path="/evidence/case42/physmem.raw"
-```
 
-> **Tip:** Make sure the target directory exists and has enough free space to hold the full physical memory image.
-
-### 2. Monitor Progress
-
-```bash
+# Monitor progress
 dmesg | grep memdump
-```
 
-Sample output:
-
-```
-memdump: module loaded — target file: /evidence/case42/physmem.raw
-memdump: opened /evidence/case42/physmem.raw for writing
-memdump: starting physical memory dump …
-memdump: dumping range 0x100000 – 0x7fffffff (2047 MiB)
-memdump: progress: 256 MiB written
-memdump: progress: 512 MiB written
-...
-memdump: dump complete — 2147483648 bytes (2048 MiB) written
-memdump: SHA-256 of dump: a1b2c3d4e5f6...
-```
-
-Record the SHA-256 hash in your case notes for chain-of-custody purposes.
-
-### 3. Unload the Module
-
-```bash
+# Unload when done
 sudo rmmod memdump
 ```
 
-### 4. Analyse the Dump
+### Analyse the Dump
 
 ```bash
-# Volatility 3 example
-vol -f /evidence/case42/physmem.raw linux.pslist
-vol -f /evidence/case42/physmem.raw linux.bash
+# With memhunter.py (interactive)
+python3 memhunter.py /tmp/memdump.raw
+
+# Direct Volatility 3
+vol -f /tmp/memdump.raw linux.pslist
+vol -f /tmp/memdump.raw linux.bash
+vol -f /tmp/memdump.raw linux.envars
 
 # Verify integrity
-sha256sum /evidence/case42/physmem.raw
+sha256sum /tmp/memdump.raw    # should match dmesg output
 ```
 
-## File Structure
+---
+
+## CTF Quick-Reference
+
+### Common Flag Locations
+
+```bash
+# Environment variables (most common CTF path)
+vol -f dump.raw linux.envars | grep -i flag
+
+# Bash history
+vol -f dump.raw linux.bash
+
+# Raw strings
+strings dump.raw | grep -oiP 'flag\{[^}]+\}'
+strings -el dump.raw | grep -oiP 'flag\{[^}]+\}'   # Unicode
+
+# Files
+vol -f dump.raw linux.find_file --find /root
+vol -f dump.raw linux.find_file --find /tmp
+```
+
+### Suspicious Process Indicators
+
+- Running from `/tmp`, `/dev/shm`, `/var/tmp`
+- PPID=1 for non-system processes
+- Name contains spaces or hidden chars
+- Maps show `(deleted)` executable
+
+### Rootkit Indicators
+
+- Module absent from `lsmod` → `linux.check_modules`
+- Syscall table entry outside kernel `.text` → `linux.check_syscall`
+- IDT entry pointing to unknown address → `linux.check_idt`
+
+---
+
+## Repository Structure
 
 ```
 linux-mem-forensics/
-├── Makefile        # Kbuild out-of-tree module Makefile
-├── memdump.c       # LKM source (heavily commented)
-└── README.md       # This file
+├── memdump.c       LKM source — physical memory acquisition
+├── Makefile        Kbuild out-of-tree module build
+├── memhunter.py    Interactive analysis tool (CTF-focused)
+├── install.sh      One-shot setup script
+└── README.md       This file
 ```
+
+---
 
 ## Security Considerations
 
-- **Root required.** `insmod` needs `CAP_SYS_MODULE` (effectively root).
-- **Secure Boot.** If Secure Boot is enabled the module must be signed with an enrolled MOK key, or Secure Boot must be disabled during acquisition.
-- **Kernel lockdown.** In `confidentiality` lockdown mode, `ioremap_cache()` on RAM ranges may be blocked. Boot with `lockdown=integrity` or `lockdown=none` if needed.
-- **Output file permissions.** The dump is created with mode `0600`. Move it to encrypted storage as soon as practical.
-
-## Limitations
-
-- The dump is a snapshot of physical RAM at acquisition time; processes continue to run and may change memory while the dump is in progress. For the most consistent results, acquire from a system with minimal activity or from a paused VM.
-- Kernel code and data that are not backed by "System RAM" resources (e.g., firmware tables, UEFI runtime regions) are intentionally excluded.
-- Only tested on x86_64. ARM64 and other architectures may require changes to the `ioremap_cache` path.
+- **Root required** — `insmod` needs `CAP_SYS_MODULE`
+- **Secure Boot** — module must be signed with an enrolled MOK key, or SB disabled
+- **Kernel lockdown** — use `lockdown=integrity` or `lockdown=none` if `ioremap_cache` is blocked
+- **Output file** — created mode `0600`; move to encrypted storage immediately
 
 ## License
 
