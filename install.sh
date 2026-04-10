@@ -25,8 +25,6 @@ warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VOL_DIR="${HOME}/volatility3"
-VENV_DIR="${HOME}/.venv/memhunter"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
@@ -40,10 +38,11 @@ elif command -v dnf &>/dev/null;   then   PKG_MGR="dnf"
 elif command -v pacman &>/dev/null; then  PKG_MGR="pacman"
 else warn "Unknown package manager — install dependencies manually."; PKG_MGR="unknown"; fi
 
-# ── Detect whether pip is externally managed (Kali/Debian 2024+) ──────────
-PIP_BREAK_FLAG=""
-if pip3 install --dry-run rich 2>&1 | grep -q "externally-managed"; then
-    warn "Detected externally-managed Python (PEP 668) — will use venv + apt packages."
+# ── Detect externally-managed Python (PEP 668) by checking the marker file ─
+PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+if [[ -f "/usr/lib/python${PYTHON_VERSION}/EXTERNALLY-MANAGED" ]] || \
+   [[ -f "/usr/lib/python3/EXTERNALLY-MANAGED" ]]; then
+    warn "Detected externally-managed Python (PEP 668) — will use venv."
     EXTERNALLY_MANAGED=1
 else
     EXTERNALLY_MANAGED=0
@@ -98,10 +97,18 @@ pip_install() {
     fi
 }
 
+# Resolve the real user even when called via sudo
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+VENV_DIR="${REAL_HOME}/.venv/memhunter"
+VOL_DIR="${REAL_HOME}/volatility3"
+
 if [[ $EXTERNALLY_MANAGED -eq 1 ]]; then
     info "Creating Python venv at ${VENV_DIR} …"
     mkdir -p "$(dirname "$VENV_DIR")"
     python3 -m venv "$VENV_DIR" --system-site-packages
+    # Hand ownership back to the real user
+    chown -R "$REAL_USER":"$REAL_USER" "$VENV_DIR"
     success "Venv created."
 fi
 
@@ -127,8 +134,9 @@ pip_install -e "$VOL_DIR"
 success "Volatility 3 installed: $VOL_DIR"
 
 # ── Create a wrapper script so 'vol' works regardless of venv ──────────────
-VOL_WRAPPER="$HOME/.local/bin/vol"
-mkdir -p "$HOME/.local/bin"
+LOCAL_BIN="${REAL_HOME}/.local/bin"
+mkdir -p "$LOCAL_BIN"
+VOL_WRAPPER="${LOCAL_BIN}/vol"
 if [[ $EXTERNALLY_MANAGED -eq 1 ]]; then
     cat > "$VOL_WRAPPER" <<EOF
 #!/usr/bin/env bash
@@ -141,6 +149,7 @@ exec python3 "${VOL_DIR}/vol.py" "\$@"
 EOF
 fi
 chmod +x "$VOL_WRAPPER"
+chown "$REAL_USER":"$REAL_USER" "$VOL_WRAPPER"
 success "Created vol wrapper: $VOL_WRAPPER"
 
 # ===========================================================================
@@ -163,10 +172,9 @@ fi
 # 5. memhunter.py wrapper
 # ===========================================================================
 chmod +x "$SCRIPT_DIR/memhunter.py"
-HUNTER_LINK="$HOME/.local/bin/memhunter"
+HUNTER_LINK="${LOCAL_BIN}/memhunter"
 
 if [[ $EXTERNALLY_MANAGED -eq 1 ]]; then
-    # Wrap memhunter inside the venv so all its imports resolve
     cat > "$HUNTER_LINK" <<EOF
 #!/usr/bin/env bash
 exec "${VENV_DIR}/bin/python3" "${SCRIPT_DIR}/memhunter.py" "\$@"
@@ -175,10 +183,11 @@ else
     ln -sf "$SCRIPT_DIR/memhunter.py" "$HUNTER_LINK"
 fi
 chmod +x "$HUNTER_LINK"
+chown "$REAL_USER":"$REAL_USER" "$HUNTER_LINK"
 success "Created memhunter command: $HUNTER_LINK"
 
 # Ensure ~/.local/bin is on PATH this session
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="${LOCAL_BIN}:$PATH"
 
 # ===========================================================================
 # 6. Build memdump.ko (optional)
