@@ -356,6 +356,29 @@ def run_vol(plugin: str, extra_args: str = "", save_as: str = "") -> str:
     if errors and "Volatility" not in errors and "WARNING" not in errors:
         cprint(f"[stderr] {errors[:400]}", "dim")
 
+    # Detect the "no symbol table / unsatisfied requirement" failure and
+    # give the user an actionable hint instead of a silent empty result.
+    VOL_FAIL_HINTS = (
+        "Unsatisfied requirement",
+        "symbol_table_name",
+        "layer_name",
+        "A translation layer requirement was not fulfilled",
+        "A symbol table requirement was not fulfilled",
+    )
+    if any(h in output or h in errors for h in VOL_FAIL_HINTS):
+        cprint("\n[!] Volatility could not parse this dump.", "bold red")
+        cprint("    Possible reasons:", "yellow")
+        cprint("    1. The dump is a SYNTHETIC test file (test_dump.raw) —", "yellow")
+        cprint("       Volatility plugins need a real acquired memory image.", "yellow")
+        cprint("    2. The Linux symbol pack is missing for this kernel.", "yellow")
+        cprint("       Download from: https://github.com/volatilityfoundation/volatility3/releases", "dim")
+        cprint("\n    Use strings-based analysis instead (no Volatility needed):", "bold cyan")
+        cprint("    → Option [5] → [4]  :  flag pattern sweep", "cyan")
+        cprint("    → Option [5] → [5]  :  base64 hunt & decode", "cyan")
+        cprint("    → Option [5] → [6]  :  credential strings", "cyan")
+        cprint("    → Option [7]        :  full strings search menu", "cyan")
+        return output
+
     if output:
         cprint(output)
         if save_as:
@@ -690,9 +713,8 @@ def print_main_menu() -> None:
 # ===========================================================================
 
 def quick_triage() -> None:
-    header("Quick Triage — Essential Plugins")
-    cprint("[*] Running a first-look set of plugins. This may take a few minutes …\n",
-           "yellow")
+    header("Quick Triage — Essential Plugins + Strings Sweep")
+    cprint("[*] Phase 1: Volatility plugins …\n", "yellow")
 
     plugins = [
         ("banners.Banners",     "",  "banners.txt"),
@@ -707,14 +729,31 @@ def quick_triage() -> None:
         ("linux.check_syscall", "",  "check_syscall.txt"),
     ]
 
+    vol_worked = False
     for plugin, args, outfile in plugins:
         cprint(f"\n{'─'*50}", "dim")
         cprint(f"  Plugin: {plugin}", "bold cyan")
-        run_vol(plugin, args, outfile)
+        out = run_vol(plugin, args, outfile)
+        if out and "Unsatisfied requirement" not in out:
+            vol_worked = True
+
+    # ── Phase 2: always run strings-based flag sweep ─────────────────────
+    cprint(f"\n{'─'*50}", "dim")
+    cprint("\n[*] Phase 2: Strings-based flag sweep (works on any dump) …\n", "yellow")
+    _hunt_flags_strings()
+
+    cprint(f"\n{'─'*50}", "dim")
+    cprint("\n[*] Phase 3: Credential strings sweep …\n", "yellow")
+    _hunt_creds_strings()
 
     cprint("\n[+] Quick triage complete.", "bold green")
     if OUT_DIR:
         cprint(f"[+] All results saved in: {OUT_DIR.resolve()}", "green")
+
+    if not vol_worked:
+        cprint("\n[!] Volatility plugins produced no output.", "bold yellow")
+        cprint("    For a real dump: run install.sh to get symbol packs.", "yellow")
+        cprint("    For this test dump: use options [5] and [7] for full strings analysis.", "yellow")
 
 
 def process_analysis() -> None:
