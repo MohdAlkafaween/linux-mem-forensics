@@ -1,0 +1,36 @@
+# Memory dump files — never commit raw memory images
+*.raw
+*.lime
+*.vmem
+*.dmp
+*.elf
+*.bin
+*.core
+
+# Auto-generated results directories
+results_*/
+
+# Kernel module build artefacts
+*.ko
+*.o
+*.mod
+*.mod.c
+*.mod.o
+*.symvers
+*.order
+.tmp_versions/
+Module.symvers
+modules.order
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+*~
