@@ -847,19 +847,20 @@ def _find_file_prompt() -> None:
 def credential_flag_hunt() -> None:
     header("Credential & Flag Hunt")
     cprint("[*] Targets the most common CTF flag and credential locations.\n", "yellow")
+    cprint("    [vol] = needs Volatility + real dump   [str] = works on any dump\n", "dim")
     opts = [
-        ("1", "bash history      — .bash_history per process"),
-        ("2", "envars full       — dump ALL environment variables"),
-        ("3", "envars → flag{    — grep envars for flag patterns"),
-        ("4", "strings → flags   — grep raw dump for flag{...}"),
-        ("5", "strings → base64  — find & decode base64 blobs"),
-        ("6", "strings → creds   — grep for password/secret/key/token"),
-        ("7", "credentials plugin— UID/GID per process"),
+        ("1", "bash history      [vol] — .bash_history per process"),
+        ("2", "envars full       [vol] — dump ALL environment variables"),
+        ("3", "envars → flag{    [vol] — grep envars for flag patterns"),
+        ("4", "strings → flags   [str] — grep raw dump for flag{...}  ← START HERE"),
+        ("5", "strings → base64  [str] — find & decode base64 blobs"),
+        ("6", "strings → creds   [str] — grep for password/secret/key/token"),
+        ("7", "credentials plugin[vol] — UID/GID per process"),
         ("b", "Back"),
     ]
     _submenu(opts, {
-        "1": lambda: run_vol("linux.bash",        "", "bash_history.txt"),
-        "2": lambda: run_vol("linux.envars",      "", "envars.txt"),
+        "1": _run_bash_history,
+        "2": _run_envars_full,
         "3": _hunt_flags_envars,
         "4": _hunt_flags_strings,
         "5": _hunt_base64,
@@ -868,10 +869,57 @@ def credential_flag_hunt() -> None:
     })
 
 
+def _vol_failed(output: str) -> bool:
+    """Return True if Volatility output indicates a parse/symbol failure."""
+    return (not output) or any(x in output for x in (
+        "Unsatisfied requirement", "symbol_table_name",
+        "layer_name", "A translation layer requirement"))
+
+
+def _run_bash_history() -> None:
+    out = run_vol("linux.bash", "", "bash_history.txt")
+    if _vol_failed(out):
+        cprint("\n[!] Volatility bash plugin failed — scanning raw strings for shell history …", "yellow")
+        if not DUMP_PATH:
+            return
+        cmd = (f'strings -n 6 "{DUMP_PATH}" | '
+               r'grep -iP "(bash|history|sudo|wget|curl|chmod|python|nc |ncat|sh -i)" | head -40')
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+        if r.stdout.strip():
+            cprint(r.stdout, "yellow")
+            save_result("bash_strings.txt", r.stdout)
+        else:
+            cprint("[!] No shell command strings found.", "yellow")
+
+
+def _run_envars_full() -> None:
+    out = run_vol("linux.envars", "", "envars.txt")
+    if _vol_failed(out):
+        cprint("\n[!] Volatility envars failed — scanning raw strings for env-style KEY=VALUE pairs …", "yellow")
+        if not DUMP_PATH:
+            return
+        cmd = (f'strings -n 6 "{DUMP_PATH}" | '
+               r'grep -oP "[A-Z_]{2,30}=\S+" | sort -u | head -60')
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+        if r.stdout.strip():
+            cprint(r.stdout, "yellow")
+            save_result("envars_strings.txt", r.stdout)
+        else:
+            cprint("[!] No KEY=VALUE env strings found.", "yellow")
+
+
 def _hunt_flags_envars() -> None:
     out = run_vol("linux.envars", "", "envars.txt")
-    if not out:
+
+    # If Volatility failed, fall back to raw strings automatically
+    vol_failed = (not out) or any(x in out for x in (
+        "Unsatisfied requirement", "symbol_table_name", "layer_name"))
+
+    if vol_failed:
+        cprint("\n[!] Volatility envars failed — falling back to raw strings scan …", "yellow")
+        _hunt_flags_strings()
         return
+
     patterns = [r"flag\{", r"HTB\{", r"picoCTF\{", r"ctf\{", r"CTF\{",
                 r"THM\{", r"DUCTF\{", r"FLAG=", r"SECRET="]
     found = False
@@ -884,7 +932,8 @@ def _hunt_flags_envars() -> None:
                 cprint(f"  {h}", "yellow")
     if not found:
         cprint("[!] No flag patterns found in envars.", "yellow")
-        cprint("[>] Tip: try option 2 to dump all envars and review manually.", "dim")
+        cprint("[>] Falling back to raw strings scan …", "dim")
+        _hunt_flags_strings()
 
 
 def _hunt_flags_strings() -> None:
