@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-memhunter.py — Interactive Linux Memory Forensics Tool for CTF Competitions
-============================================================================
+memhunter.py — Interactive Memory Forensics Tool for CTF Competitions
+=====================================================================
 Wraps Volatility 3 with guided workflows, built-in cheat sheets, and
-CTF-specific hunting techniques. All output is saved to a timestamped
-results directory so nothing is lost between sessions.
+CTF-specific hunting techniques for both Linux and Windows memory dumps.
+All output is saved to a timestamped results directory so nothing is lost
+between sessions.
 
 Usage:
     python3 memhunter.py                       # prompts for dump path
@@ -42,10 +43,48 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Globals
 # ---------------------------------------------------------------------------
-VERSION   = "2.0.0"
-DUMP_PATH = None          # set after argument parsing / menu selection
-OUT_DIR   = None          # timestamped output directory
-VOL_CMD   = None          # path to vol / vol3 / python3 vol.py
+VERSION     = "2.1.0"
+DUMP_PATH   = None          # set after argument parsing / menu selection
+OUT_DIR     = None          # timestamped output directory
+VOL_CMD     = None          # path to vol / vol3 / python3 vol.py
+OS_TYPE     = "linux"       # "linux" or "windows" — chosen at startup
+FLAG_FORMAT = ""            # user-supplied flag regex (e.g. flag\{[^}]+\})
+
+
+# ---------------------------------------------------------------------------
+# Linux → Windows Volatility plugin mapping.
+# None means the plugin has no Windows equivalent and should be skipped.
+# ---------------------------------------------------------------------------
+PLUGIN_MAP_WINDOWS = {
+    "linux.info":           "windows.info",
+    "linux.pslist":         "windows.pslist",
+    "linux.pstree":         "windows.pstree",
+    "linux.psaux":          "windows.cmdline",
+    "linux.cmdline":        "windows.cmdline",
+    "linux.envars":         "windows.envars",
+    "linux.malfind":        "windows.malfind",
+    "linux.proc.Maps":      "windows.vadinfo",
+    "linux.netstat":        "windows.netstat",
+    "linux.sockstat":       "windows.netscan",
+    "linux.check_afinfo":   None,
+    "linux.find_file":      "windows.filescan",
+    "linux.inode_cache":    None,
+    "linux.lsmod":          "windows.modules",
+    "linux.check_modules":  "windows.modscan",
+    "linux.check_syscall":  "windows.ssdt",
+    "linux.check_idt":      None,
+    "linux.tty_check":      None,
+    "linux.kernel_log":     None,
+    "linux.credentials":    "windows.hashdump",
+    "linux.bash":           None,
+}
+
+
+def _p(plugin: str):
+    """Translate a linux.* plugin to the active OS. Returns None if unavailable."""
+    if OS_TYPE == "linux" or not plugin.startswith("linux."):
+        return plugin
+    return PLUGIN_MAP_WINDOWS.get(plugin)
 
 console = Console(highlight=False) if RICH else None
 
@@ -119,14 +158,14 @@ def banner() -> None:
         console.print(art, style="bold green")
         console.print(
             Panel(
-                "[bold white]Linux Memory Forensics — CTF Edition[/bold white]\n"
-                f"[dim]v{VERSION}  |  Powered by Volatility 3[/dim]",
+                "[bold white]memhunter — Memory Forensics for CTFs[/bold white]\n"
+                f"[dim]v{VERSION}  |  Linux + Windows  |  Powered by Volatility 3[/dim]",
                 border_style="green",
             )
         )
     else:
         print(art)
-        print(f"  Linux Memory Forensics — CTF Edition  v{VERSION}\n")
+        print(f"  memhunter — Memory Forensics for CTFs  v{VERSION}  (Linux + Windows)\n")
 
 
 def ask(prompt: str, default: str = "") -> str:
@@ -134,6 +173,52 @@ def ask(prompt: str, default: str = "") -> str:
         return Prompt.ask(prompt, default=default)
     val = input(f"{prompt} [{default}]: ").strip()
     return val if val else default
+
+
+def _ensure_flag_format() -> str:
+    """Ask the user for their CTF's flag format regex and validate it.
+
+    Returns the cached FLAG_FORMAT, prompting only on the first call (or
+    when the user chooses to re-enter it). The regex is validated by
+    attempting to compile it — invalid patterns re-prompt.
+    """
+    global FLAG_FORMAT
+    if FLAG_FORMAT:
+        return FLAG_FORMAT
+    cprint("\n[*] Enter the flag format for this CTF (Python/grep regex).", "yellow")
+    cprint("    Examples:", "dim")
+    cprint(r"      flag\{[^}]+\}        HTB\{[^}]+\}        picoCTF\{[^}]+\}", "dim")
+    cprint(r"      THM\{[^}]+\}         DUCTF\{[^}]+\}      CTF\{[a-f0-9]{32}\}", "dim")
+    while True:
+        pat = ask("Flag regex").strip()
+        if not pat:
+            cprint("[!] Flag format cannot be empty.", "red")
+            continue
+        try:
+            re.compile(pat)
+        except re.error as e:
+            cprint(f"[!] Invalid regex: {e}", "red")
+            continue
+        FLAG_FORMAT = pat
+        cprint(f"[+] Flag format set to: {pat}", "green")
+        return FLAG_FORMAT
+
+
+def _select_os() -> None:
+    """Ask the user whether the dump is Linux or Windows."""
+    global OS_TYPE
+    cprint("\n[*] What OS is this memory dump from?", "yellow")
+    cprint("    [1] Linux    [2] Windows", "dim")
+    while True:
+        choice = ask("Choice", "1").strip().lower()
+        if choice in ("1", "l", "linux"):
+            OS_TYPE = "linux"
+            break
+        if choice in ("2", "w", "win", "windows"):
+            OS_TYPE = "windows"
+            break
+        cprint("[!] Enter 1 or 2.", "red")
+    cprint(f"[+] OS set to: {OS_TYPE}", "green")
 
 
 def confirm(prompt: str, default: bool = True) -> bool:
@@ -322,6 +407,17 @@ def run_vol(plugin: str, extra_args: str = "", save_as: str = "") -> str:
     if not DUMP_PATH:
         cprint("[!] No dump loaded. Use option [d] to select a file.", "red")
         return ""
+
+    mapped = _p(plugin)
+    if mapped is None:
+        cprint(f"[!] '{plugin}' has no equivalent on {OS_TYPE} — skipping.", "yellow")
+        return ""
+    plugin = mapped
+
+    # windows.filescan doesn't accept --find <path>; strip it so the map
+    # from linux.find_file still produces a usable command.
+    if plugin == "windows.filescan" and "--find" in extra_args:
+        extra_args = ""
 
     cmd = f"{VOL_CMD} -f \"{DUMP_PATH}\" {plugin} {extra_args}".strip()
     cprint(f"\n[>] {cmd}", "dim")
@@ -685,6 +781,8 @@ MAIN_MENU = [
     ("",   "",                         ""),
     ("i",  "Install / Update Volatility 3", "Clone & pip-install from GitHub"),
     ("d",  "Change dump file",         "Load a different memory image"),
+    ("o",  "Change OS (linux/windows)","Re-select the target OS for plugin mapping"),
+    ("f",  "Change flag format",       "Enter a new flag regex for this CTF"),
     ("q",  "Quit",                     "Exit memhunter"),
 ]
 
@@ -851,8 +949,8 @@ def credential_flag_hunt() -> None:
     opts = [
         ("1", "bash history      [vol] — .bash_history per process"),
         ("2", "envars full       [vol] — dump ALL environment variables"),
-        ("3", "envars → flag{    [vol] — grep envars for flag patterns"),
-        ("4", "strings → flags   [str] — grep raw dump for flag{...}  ← START HERE"),
+        ("3", "envars → flag     [vol] — grep envars for your flag format"),
+        ("4", "strings → flags   [str] — grep raw dump for your flag format  ← START HERE"),
         ("5", "strings → base64  [str] — find & decode base64 blobs"),
         ("6", "strings → creds   [str] — grep for password/secret/key/token"),
         ("7", "credentials plugin[vol] — UID/GID per process"),
@@ -909,29 +1007,22 @@ def _run_envars_full() -> None:
 
 
 def _hunt_flags_envars() -> None:
+    pat = _ensure_flag_format()
     out = run_vol("linux.envars", "", "envars.txt")
 
-    # If Volatility failed, fall back to raw strings automatically
-    vol_failed = (not out) or any(x in out for x in (
-        "Unsatisfied requirement", "symbol_table_name", "layer_name"))
-
-    if vol_failed:
+    if _vol_failed(out):
         cprint("\n[!] Volatility envars failed — falling back to raw strings scan …", "yellow")
         _hunt_flags_strings()
         return
 
-    patterns = [r"flag\{", r"HTB\{", r"picoCTF\{", r"ctf\{", r"CTF\{",
-                r"THM\{", r"DUCTF\{", r"FLAG=", r"SECRET="]
-    found = False
-    for pat in patterns:
-        hits = [l for l in out.splitlines() if re.search(pat, l, re.I)]
-        if hits:
-            found = True
-            cprint(f"\n[+] Pattern '{pat}':", "bold green")
-            for h in hits:
-                cprint(f"  {h}", "yellow")
-    if not found:
-        cprint("[!] No flag patterns found in envars.", "yellow")
+    hits = [l for l in out.splitlines() if re.search(pat, l, re.I)]
+    if hits:
+        cprint(f"\n[+] Pattern '{pat}' in envars:", "bold green")
+        for h in hits:
+            cprint(f"  {h}", "yellow")
+        save_result("flag_envars.txt", "\n".join(hits))
+    else:
+        cprint(f"[!] Flag format '{pat}' not found in envars.", "yellow")
         cprint("[>] Falling back to raw strings scan …", "dim")
         _hunt_flags_strings()
 
@@ -939,35 +1030,27 @@ def _hunt_flags_envars() -> None:
 def _hunt_flags_strings() -> None:
     if not DUMP_PATH:
         return
-    cprint("[*] Running strings against the dump — may take a minute …", "yellow")
-    patterns = [
-        r"flag\{[^}]+\}",
-        r"HTB\{[^}]+\}",
-        r"picoCTF\{[^}]+\}",
-        r"ctf\{[^}]+\}",
-        r"CTF\{[^}]+\}",
-        r"THM\{[^}]+\}",
-        r"DUCTF\{[^}]+\}",
-    ]
-    combined = "|".join(patterns)
+    pat = _ensure_flag_format()
+    # Shell-escape any double quotes so the pattern can be passed to grep -P
+    shell_pat = pat.replace('"', r'\"')
+    cprint(f"[*] Running strings against the dump for /{pat}/ — may take a minute …", "yellow")
 
     # ASCII
-    cmd = f'strings -n 6 "{DUMP_PATH}" | grep -oiP "{combined}"'
+    cmd = f'strings -n 6 "{DUMP_PATH}" | grep -oiP "{shell_pat}"'
     r1 = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-    # Unicode (wide chars)
-    cmd2 = f'strings -el "{DUMP_PATH}" | grep -oiP "{combined}"'
+    # Unicode (wide chars) — common on Windows dumps
+    cmd2 = f'strings -el "{DUMP_PATH}" | grep -oiP "{shell_pat}"'
     r2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=300)
 
     output = (r1.stdout + r2.stdout).strip()
     if output:
-        # deduplicate
         hits = sorted(set(output.splitlines()))
         cprint(f"\n[+] Found {len(hits)} unique flag string(s):", "bold green")
         for h in hits:
             cprint(f"  {h}", "bold yellow")
         save_result("flag_hits.txt", "\n".join(hits))
     else:
-        cprint("[!] No flag patterns found in raw strings.", "yellow")
+        cprint(f"[!] Flag format '{pat}' not found in raw strings.", "yellow")
         cprint("[>] Try option 5 (base64) — the flag might be encoded.", "dim")
 
 
@@ -1057,7 +1140,7 @@ def strings_search() -> None:
     opts = [
         ("1", "Custom pattern search"),
         ("2", "Extract all strings to file"),
-        ("3", "Flag pattern sweep (flag{, HTB{, THM{, …)"),
+        ("3", "Flag pattern sweep (uses the flag format you enter)"),
         ("4", "Network artefacts (IPs, URLs, emails)"),
         ("5", "Base64 hunt & decode"),
         ("b", "Back"),
@@ -1196,10 +1279,10 @@ def select_dump() -> str | None:
 # ===========================================================================
 
 def main() -> None:
-    global DUMP_PATH, OUT_DIR, VOL_CMD
+    global DUMP_PATH, OUT_DIR, VOL_CMD, FLAG_FORMAT
 
     parser = argparse.ArgumentParser(
-        description="memhunter — Interactive Linux Memory Forensics for CTF",
+        description="memhunter — Interactive Memory Forensics for CTF (Linux + Windows)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -1232,6 +1315,7 @@ def main() -> None:
 
     if DUMP_PATH:
         OUT_DIR = setup_output_dir(DUMP_PATH)
+        _select_os()
 
     # Main interactive loop
     while True:
@@ -1240,9 +1324,12 @@ def main() -> None:
         if DUMP_PATH:
             cprint(f"  Dump : [cyan]{DUMP_PATH}[/cyan]", "dim") if RICH else \
             print(f"  Dump : {DUMP_PATH}")
-            cprint(f"  Out  : [cyan]{OUT_DIR.resolve() if OUT_DIR else 'none'}[/cyan]\n",
+            cprint(f"  Out  : [cyan]{OUT_DIR.resolve() if OUT_DIR else 'none'}[/cyan]",
                    "dim") if RICH else \
-            print(f"  Out  : {OUT_DIR.resolve() if OUT_DIR else 'none'}\n")
+            print(f"  Out  : {OUT_DIR.resolve() if OUT_DIR else 'none'}")
+            cprint(f"  OS   : [cyan]{OS_TYPE}[/cyan]    Flag : [cyan]{FLAG_FORMAT or '(not set)'}[/cyan]\n",
+                   "dim") if RICH else \
+            print(f"  OS   : {OS_TYPE}    Flag : {FLAG_FORMAT or '(not set)'}\n")
         else:
             cprint("\n  [!] No dump loaded — use option [d] to select a file\n", "yellow")
 
@@ -1269,6 +1356,12 @@ def main() -> None:
             if new_dump:
                 DUMP_PATH = new_dump
                 OUT_DIR   = setup_output_dir(DUMP_PATH)
+                _select_os()
+        elif choice == "o":
+            _select_os()
+        elif choice == "f":
+            FLAG_FORMAT = ""
+            _ensure_flag_format()
         else:
             cprint("[!] Unknown option.", "red")
 

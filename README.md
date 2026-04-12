@@ -1,20 +1,21 @@
-# linux-mem-forensics
+# memhunter
 
-A two-part Linux memory forensics toolkit:
+Interactive memory forensics toolkit for CTF competitions — works on both
+**Linux** and **Windows** memory dumps.
 
 | Component | Purpose |
 |---|---|
+| **`memhunter.py`** | Interactive CLI — memory dump *analysis* (CTF-focused, Linux + Windows) |
 | **`memdump.ko`** | Linux LKM — forensic-grade physical memory *acquisition* |
-| **`memhunter.py`** | Interactive CLI — memory dump *analysis* (CTF-focused) |
 
 ---
 
-## Quick Start (CTF / Analysis)
+## Quick Start
 
 ```bash
 # 1. Clone
-git clone https://github.com/MohdAlkafaween/linux-mem-forensics
-cd linux-mem-forensics
+git clone https://github.com/MohdAlkafaween/memhunter
+cd memhunter
 
 # 2. One-shot setup (installs Volatility 3 + deps)
 chmod +x install.sh
@@ -23,6 +24,15 @@ sudo ./install.sh
 # 3. Analyse a memory dump interactively
 python3 memhunter.py /path/to/dump.raw
 ```
+
+On startup, memhunter asks:
+
+1. **Which OS** the dump is from (Linux or Windows) — used to pick the right
+   Volatility 3 plugin family (`linux.*` vs `windows.*`).
+2. **The flag format** for the CTF you're playing — as a Python/grep regex.
+   Every flag-hunting option uses that regex, so you get the right hits for
+   your specific event (HTB, picoCTF, THM, DUCTF, custom, …). No hardcoded
+   flag patterns.
 
 ---
 
@@ -35,15 +45,17 @@ python3 memhunter.py /path/to/dump.raw
  | |  | |  __/ | | | | |  _  | |_| | | | | ||  __/ |
  |_|  |_|\___|_| |_| |_|_| |_|\__,_|_| |_|\__\___|_|
 
-  Linux Memory Forensics — CTF Edition  v2.0.0
+  memhunter — Memory Forensics for CTFs  v2.1.0  (Linux + Windows)
 ```
 
 ### Features
 
+- **Linux + Windows support** — automatic `linux.*` → `windows.*` plugin mapping
+- **User-defined flag format** — you enter the regex, memhunter validates and uses it everywhere
 - **Guided menus** — no need to memorise plugin names
-- **Quick Triage** — 10 essential plugins in one shot
+- **Quick Triage** — essential plugins + strings sweep in one shot
 - **Process / Network / File / Kernel analysis** sections
-- **Flag & credential hunter** — sweeps envars, bash history, raw strings
+- **Flag & credential hunter** — sweeps envars, history, raw strings
 - **Base64 decoder** — finds and decodes blobs inline
 - **Raw strings search** — flag patterns, IPs, URLs, SSH keys without Volatility
 - **Built-in cheat sheets** — Volatility 3 reference, CTF workflow, tools guide
@@ -64,9 +76,9 @@ python3 memhunter.py --install              # install/update Volatility 3
   [  1]  Quick Triage            Auto-run essential plugins in one shot
   [  2]  Process Analysis        pslist, pstree, cmdline, envars
   [  3]  Network Analysis        netstat, sockstat, connection forensics
-  [  4]  File System Hunting     find_file, inode cache, VFS artefacts
-  [  5]  Credential & Flag Hunt  bash history, env vars, raw strings
-  [  6]  Kernel / Rootkit Check  lsmod, syscall table, IDT hooks
+  [  4]  File System Hunting     find_file / filescan, VFS artefacts
+  [  5]  Credential & Flag Hunt  history, env vars, raw strings
+  [  6]  Kernel / Rootkit Check  modules, syscall table, IDT hooks
   [  7]  Strings Search          Grep raw dump without Volatility
   [  8]  Custom Plugin           Run any Volatility plugin manually
 
@@ -77,8 +89,25 @@ python3 memhunter.py --install              # install/update Volatility 3
 
   [  i]  Install / Update Volatility 3
   [  d]  Change dump file
+  [  o]  Change OS (linux/windows)
+  [  f]  Change flag format
   [  q]  Quit
 ```
+
+### Flag format examples
+
+The first time you run a flag-hunting option you'll be asked for a regex:
+
+```
+  flag\{[^}]+\}          generic
+  HTB\{[^}]+\}           HackTheBox
+  picoCTF\{[^}]+\}       picoCTF
+  THM\{[^}]+\}           TryHackMe
+  DUCTF\{[^}]+\}         Down Under CTF
+  CTF\{[a-f0-9]{32}\}    custom fixed-length hex flag
+```
+
+Invalid regexes are rejected and you're prompted again.
 
 ### Requirements
 
@@ -89,11 +118,13 @@ python3 memhunter.py --install              # install/update Volatility 3
 
 ---
 
-## memdump.ko — Physical Memory Acquisition Module
+## memdump.ko — Physical Memory Acquisition Module (Linux)
 
 A Linux Loadable Kernel Module that performs forensic-grade physical memory
 acquisition, producing a raw dump suitable for Volatility 3, Rekall, or any
-hex editor.
+hex editor. For Windows acquisition use tools like
+[DumpIt](https://www.magnetforensics.com/resources/magnet-dumpit-for-windows/),
+WinPMEM, or FTK Imager.
 
 ### Why a Kernel Module?
 
@@ -166,48 +197,13 @@ sha256sum /tmp/memdump.raw    # should match dmesg output
 
 ---
 
-## CTF Quick-Reference
-
-### Common Flag Locations
-
-```bash
-# Environment variables (most common CTF path)
-vol -f dump.raw linux.envars | grep -i flag
-
-# Bash history
-vol -f dump.raw linux.bash
-
-# Raw strings
-strings dump.raw | grep -oiP 'flag\{[^}]+\}'
-strings -el dump.raw | grep -oiP 'flag\{[^}]+\}'   # Unicode
-
-# Files
-vol -f dump.raw linux.find_file --find /root
-vol -f dump.raw linux.find_file --find /tmp
-```
-
-### Suspicious Process Indicators
-
-- Running from `/tmp`, `/dev/shm`, `/var/tmp`
-- PPID=1 for non-system processes
-- Name contains spaces or hidden chars
-- Maps show `(deleted)` executable
-
-### Rootkit Indicators
-
-- Module absent from `lsmod` → `linux.check_modules`
-- Syscall table entry outside kernel `.text` → `linux.check_syscall`
-- IDT entry pointing to unknown address → `linux.check_idt`
-
----
-
 ## Repository Structure
 
 ```
-linux-mem-forensics/
-├── memdump.c       LKM source — physical memory acquisition
+memhunter/
+├── memdump.c       LKM source — physical memory acquisition (Linux)
 ├── Makefile        Kbuild out-of-tree module build
-├── memhunter.py    Interactive analysis tool (CTF-focused)
+├── memhunter.py    Interactive analysis tool (Linux + Windows dumps)
 ├── install.sh      One-shot setup script
 └── README.md       This file
 ```
