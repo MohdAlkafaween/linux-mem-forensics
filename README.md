@@ -25,14 +25,18 @@ sudo ./install.sh
 python3 memhunter.py /path/to/dump.raw
 ```
 
-On startup, memhunter asks:
+On startup, memhunter:
 
-1. **Which OS** the dump is from (Linux or Windows) — used to pick the right
-   Volatility 3 plugin family (`linux.*` vs `windows.*`).
-2. **The flag format** for the CTF you're playing — as a Python/grep regex.
-   Every flag-hunting option uses that regex, so you get the right hits for
-   your specific event (HTB, picoCTF, THM, DUCTF, custom, …). No hardcoded
-   flag patterns.
+1. Runs a **health check** (Volatility 3 version, `strings`, `grep -P`,
+   symbol cache, optional tools like YARA / bulk_extractor / pypykatz).
+2. **Auto-detects the OS** of the dump via `banners.Banners` — falls back to
+   a manual Linux/Windows prompt only when detection is inconclusive. The
+   chosen OS picks the right Volatility 3 plugin family (`linux.*` vs
+   `windows.*`).
+3. Asks for the **flag format** for the CTF you're playing — as a Python/grep
+   regex. Every flag-hunting option uses that regex, so you get the right
+   hits for your specific event (HTB, picoCTF, THM, DUCTF, custom, …). No
+   hardcoded flag patterns.
 
 ---
 
@@ -51,13 +55,21 @@ On startup, memhunter asks:
 ### Features
 
 - **Linux + Windows support** — automatic `linux.*` → `windows.*` plugin mapping
+- **OS auto-detect** — `banners.Banners` at startup, manual fallback on ambiguity
+- **Startup health check** — Volatility 3 version, `strings`, `grep -P`, symbol cache, optional tools
 - **User-defined flag format** — you enter the regex, memhunter validates and uses it everywhere
 - **Guided menus** — no need to memorise plugin names
-- **Quick Triage** — essential plugins + strings sweep in one shot
-- **Process / Network / File / Kernel analysis** sections
+- **Parallel Quick Triage** — 4-worker thread pool runs essential plugins concurrently, then a strings sweep, with an OS-specific plugin set (Linux: pslist/pstree/bash/envars/credentials/check_modules/…; Windows: pslist/pstree/cmdline/svcscan/netscan/malfind/hashdump/hivelist/mftscan)
+- **Severity-coloured summary** — post-triage summary marks files `[FLAG]` / `[ROOTKIT?]` / `[SUSPECT]` / `[info]`
+- **Process / Network / File / Kernel analysis** sections (Windows branch adds `pslist`/`vadinfo`/`dumpfiles` per-PID)
 - **Flag & credential hunter** — sweeps envars, history, raw strings
 - **Base64 decoder** — finds and decodes blobs inline
 - **Raw strings search** — flag patterns, IPs, URLs, SSH keys without Volatility
+- **Report generator** — stitches every `results_*/*.txt` into `report.md` (and `report.html` when `python3-markdown` is installed)
+- **YARA menu** — point at a rules file or directory, scan the dump, save hits
+- **bulk_extractor one-click** — carves emails, URLs, domains, JSON, histograms
+- **pypykatz bridge (Windows)** — dumps LSASS via `windows.memmap` and runs `pypykatz lsa minidump` automatically
+- **JSON export (`--json` / menu `j`)** — structured `hits.json` with category, source, and timestamps for scoreboard / Obsidian integration
 - **Built-in cheat sheets** — Volatility 3 reference, CTF workflow, tools guide
 - **Auto-save** — every result written to a timestamped `results_*/` directory
 - **Volatility 3 installer** — clones and installs with symbol packs in one step
@@ -67,20 +79,28 @@ On startup, memhunter asks:
 ```bash
 python3 memhunter.py                        # interactive, prompts for dump
 python3 memhunter.py dump.raw               # load dump on startup
+python3 memhunter.py dump.raw --json        # auto-export hits.json on exit
 python3 memhunter.py --install              # install/update Volatility 3
 ```
 
 ### Menu Overview
 
 ```
-  [  1]  Quick Triage            Auto-run essential plugins in one shot
-  [  2]  Process Analysis        pslist, pstree, cmdline, envars
+  [  1]  Quick Triage            Parallel plugin sweep + strings (OS-aware)
+  [  2]  Process Analysis        pslist, pstree, cmdline, envars / vadinfo
   [  3]  Network Analysis        netstat, sockstat, connection forensics
   [  4]  File System Hunting     find_file / filescan, VFS artefacts
   [  5]  Credential & Flag Hunt  history, env vars, raw strings
   [  6]  Kernel / Rootkit Check  modules, syscall table, IDT hooks
   [  7]  Strings Search          Grep raw dump without Volatility
   [  8]  Custom Plugin           Run any Volatility plugin manually
+
+  [  r]  Report (MD/HTML)        Stitch all results_*.txt into report.md
+  [  y]  YARA scan               Run yara rules against the dump
+  [ be]  bulk_extractor          One-click artefact carving
+  [ pk]  pypykatz (LSASS)        Dump LSASS via memmap + pypykatz (Windows)
+  [  j]  Export hits to JSON     Save structured hits to hits.json
+  [  h]  Health check            Re-run dependency / version checks
 
   [cs1]  Cheat Sheet: Volatility 3
   [cs2]  Cheat Sheet: CTF Workflow
@@ -111,10 +131,19 @@ Invalid regexes are rejected and you're prompted again.
 
 ### Requirements
 
+**Required**
+
 - Python 3.10+
 - [`rich`](https://github.com/Textualize/rich) — `pip3 install rich` (pre-installed on Kali)
 - [Volatility 3](https://github.com/volatilityfoundation/volatility3) — installed by `install.sh` or option `[i]`
-- `strings`, `grep` — standard Linux utilities (always present)
+- `strings`, `grep -P` — standard Linux utilities (always present)
+
+**Optional** (enable extra menu items — the health check reports what's missing)
+
+- [`yara`](https://github.com/VirusTotal/yara) — `sudo apt install yara`
+- [`bulk_extractor`](https://github.com/simsong/bulk_extractor) — `sudo apt install bulk-extractor`
+- [`pypykatz`](https://github.com/skelsec/pypykatz) — `pipx install pypykatz` (Windows LSASS)
+- `python3-markdown` — `sudo apt install python3-markdown` (HTML report export)
 
 ---
 
