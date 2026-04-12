@@ -1350,9 +1350,9 @@ def health_check() -> None:
     header("Health Check")
     # Volatility 3 version
     if VOL_CMD:
-        # Some wrappers don't accept --version; banners.Banners --help reliably
-        # prints the "Volatility 3 Framework x.y.z" line.
-        r = run_shell(f"{VOL_CMD} banners.Banners --help", timeout=30)
+        # Volatility only prints its framework banner when a plugin actually
+        # runs — probe against /dev/null to capture it cheaply.
+        r = run_shell(f"{VOL_CMD} -f /dev/null banners.Banners", timeout=30)
         blob = ((r.stdout if r else "") + (r.stderr if r else ""))
         m = re.search(r"Volatility\s*3\s*Framework\s*([\d.]+)", blob)
         if m:
