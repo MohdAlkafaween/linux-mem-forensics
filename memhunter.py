@@ -809,6 +809,7 @@ MAIN_MENU = [
     ("pk", "pypykatz (LSASS)",       "Dump LSASS via memmap + pypykatz (Windows)"),
     ("j",  "Export hits to JSON",    "Save structured flag/cred hits to hits.json"),
     ("h",  "Health check",           "Re-run dependency/version checks"),
+    ("?",  "Help",                   "Usage tips + full Volatility plugin list"),
     ("",   "",                       ""),
     ("cs1","Cheat Sheet: Volatility 3","Full plugin reference"),
     ("cs2","Cheat Sheet: CTF Workflow","Flag hunting strategies & tips"),
@@ -1635,6 +1636,75 @@ def _triage_summary() -> None:
             cprint(f"  [info]     {tf.name}", "dim")
 
 
+def show_help() -> None:
+    """In-app help: usage tips + full Volatility 3 plugin list."""
+    header("memhunter — Help")
+    tips = """
+## Workflow at a glance
+
+  1. Load a dump (argv, or menu `d`)
+  2. memhunter auto-detects OS — confirms Linux or Windows
+  3. Enter your flag regex when prompted (e.g. `flag\\{[^}]+\\}`)
+  4. Run **[1] Quick Triage** — parallel plugin sweep + flag/cred strings
+  5. Inspect `results_*/` — severity summary flags the interesting files
+  6. **[r]** Report  — stitch everything into `report.md` / `report.html`
+  7. **[j]** JSON    — export structured `hits.json` for scoreboards
+  8. **[q]** Quit    — `--json` on the CLI auto-exports on exit
+
+## Menu keys
+
+  [1] Quick Triage — the fastest way to see everything in one shot
+  [2] Process Analysis — drill into a PID (Linux: envars/Maps; Windows: vadinfo/dumpfiles)
+  [3] Network Analysis — who was talking to whom
+  [4] File System Hunting — find files in VFS/MFT cache
+  [5] Credential & Flag Hunt — most CTF flags live here
+  [6] Kernel / Rootkit Check — module/syscall/IDT integrity
+  [7] Strings Search — works on *any* dump, no Volatility required
+  [8] Custom Plugin — run any Volatility plugin verbatim
+  [r] Report (MD/HTML)      [y]  YARA scan
+  [be] bulk_extractor       [pk] pypykatz LSASS (Windows)
+  [j] Export hits → JSON    [h]  Health check
+  [cs1-4] Cheat sheets      [i]  Install Volatility 3
+  [d] Change dump           [o]  Change OS        [f] Change flag format
+
+## Tips
+
+  * `[str]` labels mean strings-only → works even if Volatility can't
+    parse the dump (missing symbol pack, truncated image, etc).
+  * `[vol]` labels mean the option invokes a Volatility plugin.
+  * Every command's output is saved automatically to `results_*/`.
+  * `[8] Custom Plugin` is the escape hatch — try any plugin listed below.
+"""
+    if RICH:
+        console.print(Markdown(tips))
+    else:
+        print(tips)
+
+    if not VOL_CMD:
+        cprint("\n[!] Volatility 3 not available — plugin list omitted.", "yellow")
+        return
+
+    cprint("\n── Available Volatility 3 plugins ──", "bold cyan")
+    r = run_shell(f"{VOL_CMD} --help", timeout=60)
+    blob = (r.stdout if r else "") + (r.stderr if r else "")
+    # vol --help lists plugins at the bottom after a "Plugins" header, or
+    # inline with the choices list. Grab lines that look like plugin names.
+    plugins = sorted(set(re.findall(
+        r"\b((?:linux|windows|mac|frameworkinfo|banners|isfinfo|configwriter|timeliner|layerwriter|yarascan|vmscan|regexscan)"
+        r"(?:\.[A-Za-z][A-Za-z0-9_]*)*)\b",
+        blob)))
+    if plugins:
+        cols = 2
+        for i in range(0, len(plugins), cols):
+            row = plugins[i:i + cols]
+            cprint("  " + "  ".join(f"{p:<42}" for p in row), "cyan")
+        cprint(f"\n  Total: {len(plugins)} plugins", "bold green")
+        cprint("  Use [8] Custom Plugin to run any of these by name.", "dim")
+    else:
+        cprint("  (Could not parse plugin list — run `vol --help` manually.)",
+               "yellow")
+
+
 def _win_pid_plugin(plugin: str) -> None:
     pid = ask("Enter PID")
     if not pid.isdigit():
@@ -1783,6 +1853,7 @@ def main() -> None:
         elif choice == "pk":  pypykatz_run()
         elif choice == "j":   export_json()
         elif choice == "h":   health_check()
+        elif choice in ("?", "help"): show_help()
         elif choice == "d":
             new_dump = select_dump()
             if new_dump:
