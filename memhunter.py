@@ -15,8 +15,11 @@ Usage:
 
 import argparse
 import base64 as _b64
+import concurrent.futures
+import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -49,6 +52,7 @@ OUT_DIR     = None          # timestamped output directory
 VOL_CMD     = None          # path to vol / vol3 / python3 vol.py
 OS_TYPE     = "linux"       # "linux" or "windows" — chosen at startup
 FLAG_FORMAT = ""            # user-supplied flag regex (e.g. flag\{[^}]+\})
+HITS_JSON   = []            # accumulated structured hits for --json export
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +387,27 @@ def setup_output_dir(dump_path: str) -> Path:
     return out
 
 
+def run_shell(cmd: str, timeout: int = 300) -> subprocess.CompletedProcess | None:
+    """Run a shell pipeline, catching timeouts and common failures.
+
+    Returns the CompletedProcess on success, or None if the command timed out
+    or failed to start. Callers should check `.stdout` / `.returncode`.
+    """
+    try:
+        return subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        cprint(f"[!] Command timed out after {timeout}s.", "yellow")
+        return None
+    except FileNotFoundError as e:
+        cprint(f"[!] Required tool missing: {e}", "red")
+        return None
+    except Exception as e:
+        cprint(f"[!] Shell error: {e}", "red")
+        return None
+
+
 def save_result(filename: str, content: str) -> None:
     if OUT_DIR is None:
         return
@@ -464,10 +489,14 @@ def run_vol(plugin: str, extra_args: str = "", save_as: str = "") -> str:
     if any(h in output or h in errors for h in VOL_FAIL_HINTS):
         cprint("\n[!] Volatility could not parse this dump.", "bold red")
         cprint("    Possible reasons:", "yellow")
-        cprint("    1. The dump is a SYNTHETIC test file (test_dump.raw) —", "yellow")
-        cprint("       Volatility plugins need a real acquired memory image.", "yellow")
-        cprint("    2. The Linux symbol pack is missing for this kernel.", "yellow")
-        cprint("       Download from: https://github.com/volatilityfoundation/volatility3/releases", "dim")
+        cprint("    1. The dump is truncated, synthetic, or from an unsupported kernel.", "yellow")
+        if OS_TYPE == "windows":
+            cprint("    2. PDB symbol download failed — Volatility needs internet access", "yellow")
+            cprint("       to fetch Windows kernel symbols from Microsoft's symbol server.", "yellow")
+            cprint("       Check connectivity and retry, or pre-seed ~/.cache/volatility3.", "dim")
+        else:
+            cprint("    2. The Linux symbol pack is missing for this kernel.", "yellow")
+            cprint("       Download from: https://github.com/volatilityfoundation/volatility3/releases", "dim")
         cprint("\n    Use strings-based analysis instead (no Volatility needed):", "bold cyan")
         cprint("    → Option [5] → [4]  :  flag pattern sweep", "cyan")
         cprint("    → Option [5] → [5]  :  base64 hunt & decode", "cyan")
@@ -774,6 +803,13 @@ MAIN_MENU = [
     ("7",  "Strings Search",         "Grep raw dump without Volatility"),
     ("8",  "Custom Plugin",          "Run any Volatility plugin manually"),
     ("",   "",                       ""),
+    ("r",  "Report (MD/HTML)",       "Stitch all results_*.txt into report.md"),
+    ("y",  "YARA scan",              "Run yara rules against the dump"),
+    ("be", "bulk_extractor",         "One-click artefact carving"),
+    ("pk", "pypykatz (LSASS)",       "Dump LSASS via memmap + pypykatz (Windows)"),
+    ("j",  "Export hits to JSON",    "Save structured flag/cred hits to hits.json"),
+    ("h",  "Health check",           "Re-run dependency/version checks"),
+    ("",   "",                       ""),
     ("cs1","Cheat Sheet: Volatility 3","Full plugin reference"),
     ("cs2","Cheat Sheet: CTF Workflow","Flag hunting strategies & tips"),
     ("cs3","Cheat Sheet: Strings/grep","No-Volatility string analysis"),
@@ -811,29 +847,58 @@ def print_main_menu() -> None:
 # ===========================================================================
 
 def quick_triage() -> None:
-    header("Quick Triage — Essential Plugins + Strings Sweep")
-    cprint("[*] Phase 1: Volatility plugins …\n", "yellow")
+    header(f"Quick Triage ({OS_TYPE}) — Parallel Plugin Sweep + Strings")
 
-    plugins = [
-        ("banners.Banners",     "",  "banners.txt"),
-        ("linux.pslist",        "",  "pslist.txt"),
-        ("linux.pstree",        "",  "pstree.txt"),
-        ("linux.lsmod",         "",  "lsmod.txt"),
-        ("linux.netstat",       "",  "netstat.txt"),
-        ("linux.bash",          "",  "bash_history.txt"),
-        ("linux.envars",        "",  "envars.txt"),
-        ("linux.credentials",   "",  "credentials.txt"),
-        ("linux.check_modules", "",  "check_modules.txt"),
-        ("linux.check_syscall", "",  "check_syscall.txt"),
-    ]
+    if OS_TYPE == "windows":
+        plugins = [
+            ("windows.info",                "", "info.txt"),
+            ("windows.pslist",              "", "pslist.txt"),
+            ("windows.pstree",              "", "pstree.txt"),
+            ("windows.cmdline",             "", "cmdline.txt"),
+            ("windows.svcscan",             "", "svcscan.txt"),
+            ("windows.netscan",             "", "netscan.txt"),
+            ("windows.malfind",             "", "malfind.txt"),
+            ("windows.hashdump",            "", "hashdump.txt"),
+            ("windows.registry.hivelist",   "", "hivelist.txt"),
+            ("windows.mftscan",             "", "mftscan.txt"),
+        ]
+    else:
+        plugins = [
+            ("banners.Banners",     "", "banners.txt"),
+            ("linux.pslist",        "", "pslist.txt"),
+            ("linux.pstree",        "", "pstree.txt"),
+            ("linux.lsmod",         "", "lsmod.txt"),
+            ("linux.netstat",       "", "netstat.txt"),
+            ("linux.bash",          "", "bash_history.txt"),
+            ("linux.envars",        "", "envars.txt"),
+            ("linux.credentials",   "", "credentials.txt"),
+            ("linux.check_modules", "", "check_modules.txt"),
+            ("linux.check_syscall", "", "check_syscall.txt"),
+        ]
+
+    cprint("[*] Phase 1: running Volatility plugins in parallel (4 workers) …\n",
+           "yellow")
 
     vol_worked = False
-    for plugin, args, outfile in plugins:
-        cprint(f"\n{'─'*50}", "dim")
-        cprint(f"  Plugin: {plugin}", "bold cyan")
-        out = run_vol(plugin, args, outfile)
-        if out and "Unsatisfied requirement" not in out:
-            vol_worked = True
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futs = {
+            ex.submit(run_vol_quiet, p, a): outfile
+            for p, a, outfile in plugins
+        }
+        for fut in concurrent.futures.as_completed(futs):
+            outfile = futs[fut]
+            try:
+                plugin_name, output = fut.result()
+            except Exception as e:
+                cprint(f"  [x] worker error: {e}", "red")
+                continue
+            if output and "Unsatisfied requirement" not in output:
+                vol_worked = True
+                save_result(outfile, f"Plugin: {plugin_name}\n\n{output}")
+                cprint(f"  [+] {plugin_name:<32} "
+                       f"{len(output.splitlines()):>5} lines", "green")
+            else:
+                cprint(f"  [-] {plugin_name:<32}  (no output / failed)", "dim")
 
     # ── Phase 2: always run strings-based flag sweep ─────────────────────
     cprint(f"\n{'─'*50}", "dim")
@@ -848,6 +913,8 @@ def quick_triage() -> None:
     if OUT_DIR:
         cprint(f"[+] All results saved in: {OUT_DIR.resolve()}", "green")
 
+    _triage_summary()
+
     if not vol_worked:
         cprint("\n[!] Volatility plugins produced no output.", "bold yellow")
         cprint("    For a real dump: run install.sh to get symbol packs.", "yellow")
@@ -855,7 +922,29 @@ def quick_triage() -> None:
 
 
 def process_analysis() -> None:
-    header("Process Analysis")
+    header(f"Process Analysis ({OS_TYPE})")
+    if OS_TYPE == "windows":
+        opts = [
+            ("1", "pslist       — simple process list"),
+            ("2", "pstree       — parent/child tree"),
+            ("3", "cmdline      — command lines for all PIDs"),
+            ("4", "pslist --pid <PID>"),
+            ("5", "vadinfo --pid <PID>  — VAD regions for a PID"),
+            ("6", "dumpfiles --pid <PID> — carve files owned by PID"),
+            ("7", "malfind      — detect injected / unsigned pages"),
+            ("b", "Back"),
+        ]
+        _submenu(opts, {
+            "1": lambda: run_vol("windows.pslist",  "", "pslist.txt"),
+            "2": lambda: run_vol("windows.pstree",  "", "pstree.txt"),
+            "3": lambda: run_vol("windows.cmdline", "", "cmdline.txt"),
+            "4": lambda: _win_pid_plugin("windows.pslist"),
+            "5": lambda: _win_pid_plugin("windows.vadinfo"),
+            "6": lambda: _win_pid_plugin("windows.dumpfiles"),
+            "7": lambda: run_vol("windows.malfind", "", "malfind.txt"),
+        })
+        return
+
     opts = [
         ("1", "pslist      — simple process list"),
         ("2", "pstree      — parent/child tree"),
@@ -881,6 +970,8 @@ def process_analysis() -> None:
 
 def _envars_grep() -> None:
     kw = ask("Keyword to search in envars (e.g. FLAG, pass, secret)", "FLAG")
+    if not kw:
+        return
     out = run_vol("linux.envars", "", "envars.txt")
     if out:
         hits = [l for l in out.splitlines() if kw.lower() in l.lower()]
@@ -977,13 +1068,19 @@ def _vol_failed(output: str) -> bool:
 def _run_bash_history() -> None:
     out = run_vol("linux.bash", "", "bash_history.txt")
     if _vol_failed(out):
-        cprint("\n[!] Volatility bash plugin failed — scanning raw strings for shell history …", "yellow")
+        if OS_TYPE == "windows":
+            cprint("\n[!] No shell-history plugin for Windows — scanning raw strings …", "yellow")
+            pattern = r"(powershell|cmd\.exe|wget|curl|Invoke-|IEX |DownloadString|bitsadmin|certutil)"
+        else:
+            cprint("\n[!] Volatility bash plugin failed — scanning raw strings for shell history …", "yellow")
+            pattern = r"(bash|history|sudo|wget|curl|chmod|python|nc |ncat|sh -i)"
         if not DUMP_PATH:
             return
-        cmd = (f'strings -n 6 "{DUMP_PATH}" | '
-               r'grep -iP "(bash|history|sudo|wget|curl|chmod|python|nc |ncat|sh -i)" | head -40')
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        if r.stdout.strip():
+        dump = shlex.quote(DUMP_PATH)
+        pat  = shlex.quote(pattern)
+        cmd  = f"strings -n 6 {dump} | grep -iP {pat} | head -40"
+        r = run_shell(cmd)
+        if r and r.stdout.strip():
             cprint(r.stdout, "yellow")
             save_result("bash_strings.txt", r.stdout)
         else:
@@ -996,10 +1093,11 @@ def _run_envars_full() -> None:
         cprint("\n[!] Volatility envars failed — scanning raw strings for env-style KEY=VALUE pairs …", "yellow")
         if not DUMP_PATH:
             return
-        cmd = (f'strings -n 6 "{DUMP_PATH}" | '
-               r'grep -oP "[A-Z_]{2,30}=\S+" | sort -u | head -60')
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        if r.stdout.strip():
+        dump = shlex.quote(DUMP_PATH)
+        pat  = shlex.quote(r"[A-Z_]{2,30}=\S+")
+        cmd  = f"strings -n 6 {dump} | grep -oP {pat} | sort -u | head -60"
+        r = run_shell(cmd)
+        if r and r.stdout.strip():
             cprint(r.stdout, "yellow")
             save_result("envars_strings.txt", r.stdout)
         else:
@@ -1031,23 +1129,25 @@ def _hunt_flags_strings() -> None:
     if not DUMP_PATH:
         return
     pat = _ensure_flag_format()
-    # Shell-escape any double quotes so the pattern can be passed to grep -P
-    shell_pat = pat.replace('"', r'\"')
     cprint(f"[*] Running strings against the dump for /{pat}/ — may take a minute …", "yellow")
 
-    # ASCII
-    cmd = f'strings -n 6 "{DUMP_PATH}" | grep -oiP "{shell_pat}"'
-    r1 = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-    # Unicode (wide chars) — common on Windows dumps
-    cmd2 = f'strings -el "{DUMP_PATH}" | grep -oiP "{shell_pat}"'
-    r2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True, timeout=300)
+    dump = shlex.quote(DUMP_PATH)
+    qpat = shlex.quote(pat)
 
-    output = (r1.stdout + r2.stdout).strip()
+    # ASCII
+    r1 = run_shell(f"strings -n 6 {dump} | grep -oiP {qpat}")
+    # Unicode (wide chars) — common on Windows dumps
+    r2 = run_shell(f"strings -el {dump} | grep -oiP {qpat}")
+
+    out1 = r1.stdout if r1 else ""
+    out2 = r2.stdout if r2 else ""
+    output = (out1 + out2).strip()
     if output:
         hits = sorted(set(output.splitlines()))
         cprint(f"\n[+] Found {len(hits)} unique flag string(s):", "bold green")
         for h in hits:
             cprint(f"  {h}", "bold yellow")
+            _record_hit("flag", h, "strings")
         save_result("flag_hits.txt", "\n".join(hits))
     else:
         cprint(f"[!] Flag format '{pat}' not found in raw strings.", "yellow")
@@ -1058,10 +1158,11 @@ def _hunt_base64() -> None:
     if not DUMP_PATH:
         return
     cprint("[*] Hunting base64 blobs (≥40 chars) …", "yellow")
-    cmd = (f'strings -n 6 "{DUMP_PATH}" | '
-           f'grep -oP "[A-Za-z0-9+/]{{40,}}={{0,2}}" | sort -u | head -80')
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-    output = result.stdout.strip()
+    dump = shlex.quote(DUMP_PATH)
+    pat  = shlex.quote(r"[A-Za-z0-9+/]{40,}={0,2}")
+    cmd  = f"strings -n 6 {dump} | grep -oP {pat} | sort -u | head -80"
+    result = run_shell(cmd)
+    output = result.stdout.strip() if result else ""
     if not output:
         cprint("[!] No base64 blobs found.", "yellow")
         return
@@ -1100,15 +1201,19 @@ def _hunt_creds_strings() -> None:
         (r"ssh-[rd]sa [A-Za-z0-9+/]+",   "SSH public keys"),
         (r"BEGIN .{0,30}PRIVATE KEY",     "private keys (PEM)"),
     ]
+    dump = shlex.quote(DUMP_PATH)
     any_found = False
     for pat, label in patterns:
-        cmd = f'strings -n 6 "{DUMP_PATH}" | grep -oiP "{pat}" | head -20'
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
-        if result.stdout.strip():
+        qpat = shlex.quote(pat)
+        cmd  = f"strings -n 6 {dump} | grep -oiP {qpat} | head -20"
+        result = run_shell(cmd, timeout=120)
+        if result and result.stdout.strip():
             any_found = True
             cprint(f"\n[+] {label}:", "bold yellow")
             cprint(result.stdout.strip(), "yellow")
             save_result("credential_hits.txt", f"=== {label} ===\n{result.stdout}")
+            for ln in result.stdout.strip().splitlines():
+                _record_hit("credential", ln, label)
 
     if not any_found:
         cprint("[!] No credential patterns found.", "yellow")
@@ -1160,9 +1265,16 @@ def _strings_custom() -> None:
     pat = ask("Regex pattern (grep -oiP syntax, e.g. flag\\{[^}]+\\})")
     if not pat:
         return
-    cmd = f'strings -n 6 "{DUMP_PATH}" | grep -oiP "{pat}" | sort -u | head -100'
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-    if result.stdout.strip():
+    try:
+        re.compile(pat)
+    except re.error as e:
+        cprint(f"[!] Invalid regex: {e}", "red")
+        return
+    dump = shlex.quote(DUMP_PATH)
+    qpat = shlex.quote(pat)
+    cmd  = f"strings -n 6 {dump} | grep -oiP {qpat} | sort -u | head -100"
+    result = run_shell(cmd)
+    if result and result.stdout.strip():
         cprint(result.stdout, "yellow")
         save_result("custom_strings.txt", f"Pattern: {pat}\n{result.stdout}")
     else:
@@ -1173,14 +1285,18 @@ def _strings_extract_all() -> None:
     if not DUMP_PATH or not OUT_DIR:
         return
     out_file = OUT_DIR / "all_strings.txt"
+    dump = shlex.quote(DUMP_PATH)
+    qout = shlex.quote(str(out_file))
     cprint(f"[*] Extracting ASCII strings to {out_file} …", "yellow")
-    subprocess.run(f'strings -n 6 "{DUMP_PATH}" > "{out_file}"',
-                   shell=True, timeout=600)
+    if run_shell(f"strings -n 6 {dump} > {qout}", timeout=600) is None:
+        return
     cprint("[*] Appending Unicode (wide) strings …", "yellow")
-    subprocess.run(f'strings -el "{DUMP_PATH}" >> "{out_file}"',
-                   shell=True, timeout=300)
-    size_kb = out_file.stat().st_size // 1024
-    cprint(f"[+] Saved {size_kb:,} KB → {out_file}", "bold green")
+    run_shell(f"strings -el {dump} >> {qout}", timeout=300)
+    try:
+        size_kb = out_file.stat().st_size // 1024
+        cprint(f"[+] Saved {size_kb:,} KB → {out_file}", "bold green")
+    except OSError as e:
+        cprint(f"[!] Could not stat output file: {e}", "red")
     cprint("[>] Tip: grep -aP 'flag\\{' all_strings.txt", "dim")
 
 
@@ -1194,13 +1310,13 @@ def _strings_network() -> None:
         (r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-z]{2,}",  "Email addresses"),
         (r"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b", "IPv6 addresses"),
     ]
+    dump = shlex.quote(DUMP_PATH)
     any_found = False
     for pat, label in patterns:
-        cmd = (f'strings -n 6 "{DUMP_PATH}" | '
-               f'grep -oiP "{pat}" | sort -u | head -40')
-        result = subprocess.run(cmd, shell=True, capture_output=True,
-                                text=True, timeout=300)
-        if result.stdout.strip():
+        qpat = shlex.quote(pat)
+        cmd  = f"strings -n 6 {dump} | grep -oiP {qpat} | sort -u | head -40"
+        result = run_shell(cmd)
+        if result and result.stdout.strip():
             any_found = True
             cprint(f"\n[+] {label}:", "bold cyan")
             cprint(result.stdout.strip(), "cyan")
@@ -1224,6 +1340,308 @@ def custom_plugin() -> None:
     plugin = parts[0]
     args   = parts[1] if len(parts) > 1 else ""
     run_vol(plugin, args, f"custom_{plugin.replace('.','_')}.txt")
+
+
+# ===========================================================================
+# Health check
+# ===========================================================================
+
+def health_check() -> None:
+    header("Health Check")
+    # Volatility 3 version
+    if VOL_CMD:
+        # Some wrappers don't accept --version; banners.Banners --help reliably
+        # prints the "Volatility 3 Framework x.y.z" line.
+        r = run_shell(f"{VOL_CMD} banners.Banners --help", timeout=30)
+        blob = ((r.stdout if r else "") + (r.stderr if r else ""))
+        m = re.search(r"Volatility\s*3\s*Framework\s*([\d.]+)", blob)
+        if m:
+            cprint(f"  [+] Volatility 3 Framework {m.group(1)}", "green")
+        else:
+            cprint("  [+] Volatility: present (version unknown)", "green")
+            cprint("  [!] Could not confirm Volatility 3.x banner.", "yellow")
+    else:
+        cprint("  [!] Volatility 3 not found (option [i] to install).", "red")
+
+    # strings
+    if shutil.which("strings"):
+        cprint("  [+] strings: OK", "green")
+    else:
+        cprint("  [!] strings missing (sudo apt install binutils).", "red")
+
+    # grep -P (PCRE)
+    r = subprocess.run("echo test | grep -P test", shell=True,
+                       capture_output=True)
+    if r.returncode == 0:
+        cprint("  [+] grep -P (PCRE): OK", "green")
+    else:
+        cprint("  [!] grep lacks PCRE (-P) support.", "yellow")
+
+    # Symbol cache
+    cache = _real_home() / ".cache" / "volatility3"
+    if cache.exists():
+        cprint(f"  [+] Symbol cache: {cache}", "green")
+    else:
+        cprint(f"  [-] Symbol cache not created yet: {cache}", "dim")
+
+    # Optional tools
+    for t in ("yara", "bulk_extractor", "pypykatz"):
+        if shutil.which(t):
+            cprint(f"  [+] {t}: installed", "green")
+        else:
+            cprint(f"  [-] {t}: not installed (optional)", "dim")
+
+
+# ===========================================================================
+# OS auto-detect (banners.Banners once)
+# ===========================================================================
+
+def _auto_detect_os() -> None:
+    global OS_TYPE
+    if not (VOL_CMD and DUMP_PATH):
+        _select_os()
+        return
+    cprint("\n[*] Auto-detecting OS via banners.Banners …", "yellow")
+    r = run_shell(f"{VOL_CMD} -f \"{DUMP_PATH}\" banners.Banners", timeout=240)
+    blob = ((r.stdout if r else "") + (r.stderr if r else "")) if r else ""
+    if "Linux version" in blob:
+        OS_TYPE = "linux"
+        cprint("[+] Detected: Linux", "bold green")
+    elif re.search(r"Windows|ntoskrnl|NT Kernel|Microsoft", blob):
+        OS_TYPE = "windows"
+        cprint("[+] Detected: Windows", "bold green")
+    else:
+        cprint("[!] Auto-detect inconclusive — please select manually.", "yellow")
+        _select_os()
+
+
+# ===========================================================================
+# Quiet parallel Volatility runner (no Rich progress — thread-safe)
+# ===========================================================================
+
+def run_vol_quiet(plugin: str, extra_args: str = "", timeout: int = 300) -> tuple:
+    if not (VOL_CMD and DUMP_PATH):
+        return plugin, ""
+    mapped = _p(plugin)
+    if mapped is None:
+        return plugin, ""
+    plugin = mapped
+    if plugin == "windows.filescan" and "--find" in extra_args:
+        extra_args = ""
+    cmd = f"{VOL_CMD} -f \"{DUMP_PATH}\" {plugin} {extra_args}".strip()
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True,
+                           text=True, timeout=timeout)
+        return plugin, (r.stdout or "")
+    except subprocess.TimeoutExpired:
+        return plugin, ""
+    except Exception:
+        return plugin, ""
+
+
+# ===========================================================================
+# Report generator, YARA, bulk_extractor, pypykatz, JSON export
+# ===========================================================================
+
+def generate_report() -> None:
+    if not OUT_DIR:
+        cprint("[!] No output directory.", "red")
+        return
+    header("Report Generator")
+    files = sorted(p for p in OUT_DIR.glob("*.txt") if p.name != "report.md")
+    if not files:
+        cprint("[!] No result files yet.", "yellow")
+        return
+    md = OUT_DIR / "report.md"
+    with md.open("w") as f:
+        f.write("# memhunter Report\n\n")
+        f.write(f"- **Dump:** `{DUMP_PATH}`\n")
+        f.write(f"- **OS:** {OS_TYPE}\n")
+        f.write(f"- **Flag format:** `{FLAG_FORMAT or 'n/a'}`\n")
+        f.write(f"- **Generated:** {datetime.now().isoformat()}\n\n")
+        f.write("## Contents\n\n")
+        for tf in files:
+            f.write(f"- [{tf.name}](#{tf.stem.lower()})\n")
+        f.write("\n---\n\n")
+        for tf in files:
+            try:
+                content = tf.read_text(errors="replace")
+            except OSError:
+                continue
+            hits = len(content.splitlines())
+            f.write(f"## {tf.stem}\n\n")
+            f.write(f"*{tf.name} — {hits} lines*\n\n")
+            f.write("```\n")
+            f.write(content[:12000])
+            if len(content) > 12000:
+                f.write("\n... [truncated] ...\n")
+            f.write("\n```\n\n")
+    cprint(f"[+] Markdown report → {md}", "bold green")
+
+    html = OUT_DIR / "report.html"
+    try:
+        import markdown as _md  # type: ignore
+        html.write_text(
+            "<html><head><meta charset='utf-8'>"
+            "<style>body{font-family:sans-serif;max-width:980px;margin:2em auto;}"
+            "pre{background:#111;color:#eee;padding:1em;overflow-x:auto;}"
+            "code{background:#eee;padding:1px 4px;}</style></head><body>"
+            + _md.markdown(md.read_text(), extensions=["fenced_code"])
+            + "</body></html>"
+        )
+        cprint(f"[+] HTML report     → {html}", "bold green")
+    except ImportError:
+        cprint("  (install python3-markdown for HTML export)", "dim")
+
+
+def yara_scan() -> None:
+    header("YARA Scan")
+    if not shutil.which("yara"):
+        cprint("[!] yara not installed (sudo apt install yara).", "red")
+        return
+    if not DUMP_PATH:
+        return
+    rules = ask("Path to YARA rule file or rules directory")
+    if not rules:
+        return
+    rp = Path(rules).expanduser()
+    if not rp.exists():
+        cprint(f"[!] Not found: {rp}", "red")
+        return
+    flag = "-r" if rp.is_dir() else ""
+    cmd = f"yara -w -s {flag} {shlex.quote(str(rp))} {shlex.quote(DUMP_PATH)}"
+    cprint(f"[>] {cmd}", "dim")
+    r = run_shell(cmd, timeout=1200)
+    if r and r.stdout.strip():
+        cprint(r.stdout, "yellow")
+        save_result("yara_hits.txt", r.stdout)
+        for line in r.stdout.splitlines():
+            if line.strip() and not line.startswith("0x"):
+                _record_hit("yara", line.strip(), "yara_scan")
+    else:
+        cprint("[!] No YARA hits.", "yellow")
+
+
+def bulk_extractor_run() -> None:
+    header("bulk_extractor")
+    if not shutil.which("bulk_extractor"):
+        cprint("[!] bulk_extractor not installed (sudo apt install bulk-extractor).", "red")
+        return
+    if not (DUMP_PATH and OUT_DIR):
+        return
+    be_out = OUT_DIR / "bulk_extractor"
+    if be_out.exists():
+        cprint(f"[!] Output dir exists: {be_out} — remove it first.", "yellow")
+        return
+    cmd = f"bulk_extractor -o {shlex.quote(str(be_out))} {shlex.quote(DUMP_PATH)}"
+    cprint(f"[>] {cmd}", "dim")
+    r = run_shell(cmd, timeout=1800)
+    if r is None or not be_out.exists():
+        cprint("[!] bulk_extractor failed.", "red")
+        return
+    cprint(f"[+] Done → {be_out}", "bold green")
+    for fp in sorted(be_out.glob("*.txt")):
+        try:
+            sz = fp.stat().st_size
+            if sz > 0:
+                cprint(f"  {fp.name:<28} {sz:>10,} bytes", "cyan")
+        except OSError:
+            pass
+
+
+def pypykatz_run() -> None:
+    header("pypykatz — LSASS Credentials")
+    if OS_TYPE != "windows":
+        cprint("[!] pypykatz targets Windows LSASS dumps only.", "yellow")
+        return
+    if not shutil.which("pypykatz"):
+        cprint("[!] pypykatz not installed (pipx install pypykatz).", "red")
+        return
+    if not (DUMP_PATH and OUT_DIR):
+        return
+    pid = ask("LSASS PID (use Quick Triage → pslist to find it)")
+    if not pid.isdigit():
+        cprint("[!] Invalid PID.", "red")
+        return
+    dump_dir = OUT_DIR / f"lsass_pid{pid}"
+    dump_dir.mkdir(exist_ok=True)
+    cprint("[*] Dumping LSASS memory via windows.memmap …", "yellow")
+    cmd = (f"cd {shlex.quote(str(dump_dir))} && "
+           f"{VOL_CMD} -f \"{DUMP_PATH}\" windows.memmap --dump --pid {pid}")
+    r = run_shell(cmd, timeout=900)
+    if r is None:
+        return
+    dmps = list(dump_dir.glob("*.dmp"))
+    if not dmps:
+        cprint("[!] No .dmp file produced by memmap.", "red")
+        return
+    for d in dmps:
+        cprint(f"[*] pypykatz lsa minidump {d.name} …", "yellow")
+        r2 = run_shell(f"pypykatz lsa minidump {shlex.quote(str(d))}", timeout=300)
+        if r2 and r2.stdout:
+            cprint(r2.stdout, "yellow")
+            save_result(f"pypykatz_pid{pid}.txt", r2.stdout)
+            _record_hit("pypykatz", f"lsass pid {pid} parsed", d.name)
+
+
+def _record_hit(category: str, value: str, source: str = "") -> None:
+    HITS_JSON.append({
+        "category": category,
+        "value": value,
+        "source": source,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+def export_json() -> None:
+    if not OUT_DIR:
+        cprint("[!] No output directory.", "red")
+        return
+    p = OUT_DIR / "hits.json"
+    payload = {
+        "dump": DUMP_PATH,
+        "os": OS_TYPE,
+        "flag_format": FLAG_FORMAT,
+        "generated": datetime.now().isoformat(),
+        "hits": HITS_JSON,
+    }
+    p.write_text(json.dumps(payload, indent=2))
+    cprint(f"[+] {len(HITS_JSON)} hit(s) → {p}", "bold green")
+
+
+def _triage_summary() -> None:
+    if not OUT_DIR:
+        return
+    cprint("\n── Severity Summary ──", "bold cyan")
+    rootkit_markers = ("malfind", "check_modules", "check_syscall",
+                       "check_idt", "rootkit")
+    suspect_markers = ("credential", "hashdump", "envars",
+                       "netstat", "netscan", "svcscan", "cmdline")
+    for tf in sorted(OUT_DIR.glob("*.txt")):
+        try:
+            content = tf.read_text(errors="replace").strip()
+        except OSError:
+            continue
+        if not content:
+            continue
+        name = tf.name.lower()
+        if "flag" in name:
+            cprint(f"  [FLAG]     {tf.name}", "bold green")
+        elif any(m in name for m in rootkit_markers):
+            cprint(f"  [ROOTKIT?] {tf.name}", "bold red")
+        elif any(m in name for m in suspect_markers):
+            cprint(f"  [SUSPECT]  {tf.name}", "yellow")
+        else:
+            cprint(f"  [info]     {tf.name}", "dim")
+
+
+def _win_pid_plugin(plugin: str) -> None:
+    pid = ask("Enter PID")
+    if not pid.isdigit():
+        cprint("[!] Invalid PID.", "red")
+        return
+    run_vol(plugin, f"--pid {pid}",
+            f"{plugin.replace('.','_')}_pid{pid}.txt")
 
 
 # ===========================================================================
@@ -1289,6 +1707,8 @@ def main() -> None:
     parser.add_argument("dump", nargs="?", help="Memory dump file to analyse")
     parser.add_argument("--install", action="store_true",
                         help="Install/update Volatility 3 from GitHub and exit")
+    parser.add_argument("--json", action="store_true",
+                        help="After analysis, export accumulated hits to hits.json on exit")
     args = parser.parse_args()
 
     banner()
@@ -1299,6 +1719,9 @@ def main() -> None:
 
     # Ensure Volatility 3 is available
     ensure_volatility()
+
+    # Startup health check
+    health_check()
 
     # Load dump file
     if args.dump:
@@ -1315,7 +1738,7 @@ def main() -> None:
 
     if DUMP_PATH:
         OUT_DIR = setup_output_dir(DUMP_PATH)
-        _select_os()
+        _auto_detect_os()
 
     # Main interactive loop
     while True:
@@ -1335,7 +1758,10 @@ def main() -> None:
 
         choice = ask("Choice", "q").strip().lower()
 
-        if   choice == "q":   cprint("\n[*] Goodbye.\n", "cyan"); sys.exit(0)
+        if   choice == "q":
+            if args.json:
+                export_json()
+            cprint("\n[*] Goodbye.\n", "cyan"); sys.exit(0)
         elif choice == "1":   quick_triage()
         elif choice == "2":   process_analysis()
         elif choice == "3":   network_analysis()
@@ -1351,12 +1777,18 @@ def main() -> None:
         elif choice == "i":
             install_volatility()
             VOL_CMD = find_volatility() or VOL_CMD
+        elif choice == "r":   generate_report()
+        elif choice == "y":   yara_scan()
+        elif choice == "be":  bulk_extractor_run()
+        elif choice == "pk":  pypykatz_run()
+        elif choice == "j":   export_json()
+        elif choice == "h":   health_check()
         elif choice == "d":
             new_dump = select_dump()
             if new_dump:
                 DUMP_PATH = new_dump
                 OUT_DIR   = setup_output_dir(DUMP_PATH)
-                _select_os()
+                _auto_detect_os()
         elif choice == "o":
             _select_os()
         elif choice == "f":
