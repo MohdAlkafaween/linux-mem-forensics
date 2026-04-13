@@ -481,12 +481,11 @@ def run_vol(plugin: str, extra_args: str = "", save_as: str = "") -> str:
     # give the user an actionable hint instead of a silent empty result.
     VOL_FAIL_HINTS = (
         "Unsatisfied requirement",
-        "symbol_table_name",
-        "layer_name",
         "A translation layer requirement was not fulfilled",
         "A symbol table requirement was not fulfilled",
     )
-    if any(h in output or h in errors for h in VOL_FAIL_HINTS):
+    has_real_data = len([ln for ln in output.splitlines() if ln.strip()]) > 1
+    if not has_real_data and any(h in output or h in errors for h in VOL_FAIL_HINTS):
         cprint("\n[!] Volatility could not parse this dump.", "bold red")
         cprint("    Possible reasons:", "yellow")
         cprint("    1. The dump is truncated, synthetic, or from an unsupported kernel.", "yellow")
@@ -1061,9 +1060,12 @@ def credential_flag_hunt() -> None:
 
 def _vol_failed(output: str) -> bool:
     """Return True if Volatility output indicates a parse/symbol failure."""
+    has_real_data = len([ln for ln in output.splitlines() if ln.strip()]) > 1
+    if has_real_data:
+        return False
     return (not output) or any(x in output for x in (
-        "Unsatisfied requirement", "symbol_table_name",
-        "layer_name", "A translation layer requirement"))
+        "Unsatisfied requirement", "A translation layer requirement",
+        "A symbol table requirement"))
 
 
 def _run_bash_history() -> None:
