@@ -190,14 +190,17 @@ def _ensure_flag_format() -> str:
     if FLAG_FORMAT:
         return FLAG_FORMAT
     cprint("\n[*] Enter the flag format for this CTF (Python/grep regex).", "yellow")
+    cprint("    Optional — press Enter to use a default multi-CTF pattern.", "dim")
     cprint("    Examples:", "dim")
     cprint(r"      flag\{[^}]+\}        HTB\{[^}]+\}        picoCTF\{[^}]+\}", "dim")
     cprint(r"      THM\{[^}]+\}         DUCTF\{[^}]+\}      CTF\{[a-f0-9]{32}\}", "dim")
+    default_pat = r"(?:flag|HTB|picoCTF|THM|DUCTF|CTF|pwn|sun|KCTF)\{[^}]{1,200}\}"
     while True:
-        pat = ask("Flag regex").strip()
+        pat = ask("Flag regex (blank = default)").strip()
         if not pat:
-            cprint("[!] Flag format cannot be empty.", "red")
-            continue
+            FLAG_FORMAT = default_pat
+            cprint(f"[+] Using default flag pattern: {default_pat}", "green")
+            return FLAG_FORMAT
         try:
             re.compile(pat)
         except re.error as e:
@@ -816,6 +819,7 @@ MAIN_MENU = [
     ("cs4","Cheat Sheet: Tools",       "Companion forensics tools"),
     ("",   "",                         ""),
     ("i",  "Install / Update Volatility 3", "Clone & pip-install from GitHub"),
+    ("iy", "Install YARA",                "apt install yara"),
     ("d",  "Change dump file",         "Load a different memory image"),
     ("o",  "Change OS (linux/windows)","Re-select the target OS for plugin mapping"),
     ("f",  "Change flag format",       "Enter a new flag regex for this CTF"),
@@ -1486,9 +1490,13 @@ def generate_report() -> None:
         import markdown as _md  # type: ignore
         html.write_text(
             "<html><head><meta charset='utf-8'>"
-            "<style>body{font-family:sans-serif;max-width:980px;margin:2em auto;}"
-            "pre{background:#111;color:#eee;padding:1em;overflow-x:auto;}"
-            "code{background:#eee;padding:1px 4px;}</style></head><body>"
+            "<style>body{font-family:sans-serif;max-width:980px;margin:2em auto;"
+            "color:#222;background:#fff;}"
+            "pre{background:#111;color:#eee;padding:1em;overflow-x:auto;"
+            "white-space:pre-wrap;word-break:break-word;}"
+            "pre code{background:transparent;color:inherit;padding:0;}"
+            "code{background:#eee;color:#222;padding:1px 4px;}"
+            "a{color:#0645ad;}</style></head><body>"
             + _md.markdown(md.read_text(), extensions=["fenced_code"])
             + "</body></html>"
         )
@@ -1497,25 +1505,172 @@ def generate_report() -> None:
         cprint("  (install python3-markdown for HTML export)", "dim")
 
 
+def _install_yara_rules() -> None:
+    dest = Path("~/yara-rules").expanduser()
+    if dest.exists() and any(dest.rglob("*.yar*")):
+        cprint(f"[+] YARA rules already present at {dest}", "green")
+        return
+    if not shutil.which("git"):
+        cprint("[!] git not installed — cannot clone rule set.", "red")
+        return
+    repos = [
+        ("1", "Neo23x0/signature-base  (Florian Roth, curated APT/malware)",
+         "https://github.com/Neo23x0/signature-base.git"),
+        ("2", "Yara-Rules/rules         (large community collection)",
+         "https://github.com/Yara-Rules/rules.git"),
+    ]
+    cprint("[*] Available YARA rule sets:", "cyan")
+    for k, label, _ in repos:
+        cprint(f"  {k}) {label}", "yellow")
+    cprint("  s) Skip", "dim")
+    choice = ask("Select rule set [1/2/s]", "1").strip().lower()
+    repo = next((r for r in repos if r[0] == choice), None)
+    if not repo:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = ["git", "clone", "--depth", "1", repo[2], str(dest)]
+    cprint(f"[>] {' '.join(shlex.quote(c) for c in cmd)}", "dim")
+    try:
+        rc = subprocess.run(cmd, timeout=1800).returncode
+    except subprocess.TimeoutExpired:
+        cprint("[!] git clone timed out after 30 min.", "red")
+        return
+    except Exception as e:
+        cprint(f"[!] git clone error: {e}", "red")
+        return
+    if rc != 0:
+        cprint(f"[!] git clone failed (exit {rc}).", "red")
+        return
+    n = sum(1 for _ in dest.rglob("*.yar")) + sum(1 for _ in dest.rglob("*.yara"))
+    if n:
+        cprint(f"[+] Cloned {n} rule file(s) to {dest}", "bold green")
+    else:
+        cprint(f"[!] Clone succeeded but no .yar/.yara files found under {dest}.", "yellow")
+
+
+def install_yara() -> None:
+    header("Install YARA")
+    if shutil.which("yara"):
+        cprint(f"[+] yara already installed at {shutil.which('yara')}", "green")
+        r = run_shell("yara --version")
+        if r and r.stdout.strip():
+            cprint(f"    version: {r.stdout.strip()}", "dim")
+    else:
+        cprint("[*] Installing yara via apt (requires sudo) …", "yellow")
+        cmd = "sudo apt update && sudo apt install -y yara"
+        cprint(f"[>] {cmd}", "dim")
+        run_shell(cmd, timeout=600)
+        if shutil.which("yara"):
+            cprint("[+] yara installed successfully.", "bold green")
+        else:
+            cprint("[!] yara install failed — install manually: sudo apt install yara", "red")
+            return
+    if ask("Download a YARA rule set now? [Y/n]", "y").strip().lower() in ("", "y", "yes"):
+        _install_yara_rules()
+
+
+def _find_yara_rules() -> list[Path]:
+    """Auto-discover YARA rule files/dirs in common locations."""
+    candidates = [
+        "/usr/share/yara",
+        "/usr/share/yara-rules",
+        "/var/lib/yara",
+        "/opt/yara-rules",
+        "/opt/yara",
+        "~/yara-rules",
+        "~/.yara",
+        "~/rules",
+    ]
+    found: list[Path] = []
+    for c in candidates:
+        p = Path(c).expanduser()
+        if not p.exists():
+            continue
+        if p.is_file() and p.suffix in (".yar", ".yara"):
+            found.append(p)
+        elif p.is_dir():
+            if any(p.rglob("*.yar")) or any(p.rglob("*.yara")):
+                found.append(p)
+    return found
+
+
 def yara_scan() -> None:
     header("YARA Scan")
     if not shutil.which("yara"):
-        cprint("[!] yara not installed (sudo apt install yara).", "red")
-        return
+        cprint("[!] yara not installed.", "red")
+        if ask("Install yara now? [y/N]").strip().lower() == "y":
+            install_yara()
+        if not shutil.which("yara"):
+            return
     if not DUMP_PATH:
         return
-    rules = ask("Path to YARA rule file or rules directory")
+
+    discovered = _find_yara_rules()
+    if discovered:
+        cprint("[*] Auto-detected YARA rule locations:", "cyan")
+        for i, d in enumerate(discovered, 1):
+            kind = "dir" if d.is_dir() else "file"
+            cprint(f"  {i}) [{kind}] {d}", "yellow")
+        cprint("  m) Enter path manually", "dim")
+        choice = ask(f"Select [1-{len(discovered)}/m]", "1").strip().lower()
+        if choice == "m":
+            rules = ask("Path to YARA rule file or rules directory")
+        elif choice.isdigit() and 1 <= int(choice) <= len(discovered):
+            rules = str(discovered[int(choice) - 1])
+        else:
+            cprint("[!] Invalid selection.", "red")
+            return
+    else:
+        cprint("[*] No YARA rules auto-detected in common locations.", "dim")
+        rules = ask("Path to YARA rule file or rules directory")
+
     if not rules:
         return
     rp = Path(rules).expanduser()
     if not rp.exists():
         cprint(f"[!] Not found: {rp}", "red")
         return
-    flag = "-r" if rp.is_dir() else ""
-    cmd = f"yara -w -s {flag} {shlex.quote(str(rp))} {shlex.quote(DUMP_PATH)}"
+    index_file: Path | None = None
+    if rp.is_dir():
+        all_files = sorted({*rp.rglob("*.yar"), *rp.rglob("*.yara")})
+        rule_files = [
+            f for f in all_files
+            if "index" not in f.name.lower()
+            and "deprecated" not in {p.lower() for p in f.parts}
+        ]
+        skipped = len(all_files) - len(rule_files)
+        if not rule_files:
+            cprint(f"[!] No .yar/.yara files under {rp}", "red")
+            return
+        cprint(f"[*] Found {len(rule_files)} rule file(s) under {rp}"
+               + (f" (skipped {skipped} index/deprecated)" if skipped else ""), "cyan")
+        index_file = (OUT_DIR / "_yara_index.yar") if OUT_DIR else Path("/tmp/_yara_index.yar")
+        index_file.write_text("".join(f'include "{f}"\n' for f in rule_files))
+        rules_arg = shlex.quote(str(index_file))
+    else:
+        rules_arg = shlex.quote(str(rp))
+    cmd = f"yara -w -s {rules_arg} {shlex.quote(DUMP_PATH)}"
     cprint(f"[>] {cmd}", "dim")
     r = run_shell(cmd, timeout=1200)
-    if r and r.stdout.strip():
+    if r is None:
+        return
+    if r.returncode != 0:
+        cprint(f"[!] yara exited with code {r.returncode}.", "red")
+        if r.stderr.strip():
+            err = r.stderr.strip().splitlines()
+            cprint("[!] yara stderr (first 20 lines):", "red")
+            for line in err[:20]:
+                cprint(f"    {line}", "dim")
+            if len(err) > 20:
+                cprint(f"    ... ({len(err) - 20} more lines suppressed)", "dim")
+            if OUT_DIR:
+                save_result("yara_errors.txt", r.stderr)
+                cprint(f"[*] Full errors saved to {OUT_DIR}/yara_errors.txt", "dim")
+        cprint("[*] Tip: Yara-Rules/rules has many rules requiring external modules "
+               "(pe, cuckoo) or vars (filename) that fail to compile. Try "
+               "Neo23x0/signature-base instead — it's curated and compiles cleanly.", "cyan")
+        return
+    if r.stdout.strip():
         cprint(r.stdout, "yellow")
         save_result("yara_hits.txt", r.stdout)
         for line in r.stdout.splitlines():
@@ -1523,6 +1678,9 @@ def yara_scan() -> None:
                 _record_hit("yara", line.strip(), "yara_scan")
     else:
         cprint("[!] No YARA hits.", "yellow")
+        if r.stderr.strip() and OUT_DIR:
+            save_result("yara_errors.txt", r.stderr)
+            cprint(f"[*] yara emitted warnings — see {OUT_DIR}/yara_errors.txt", "dim")
 
 
 def bulk_extractor_run() -> None:
@@ -1851,6 +2009,7 @@ def main() -> None:
             VOL_CMD = find_volatility() or VOL_CMD
         elif choice == "r":   generate_report()
         elif choice == "y":   yara_scan()
+        elif choice == "iy":  install_yara()
         elif choice == "be":  bulk_extractor_run()
         elif choice == "pk":  pypykatz_run()
         elif choice == "j":   export_json()
