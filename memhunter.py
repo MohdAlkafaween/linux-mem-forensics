@@ -179,28 +179,36 @@ def ask(prompt: str, default: str = "") -> str:
     return val if val else default
 
 
-def _ensure_flag_format() -> str:
-    """Ask the user for their CTF's flag format regex and validate it.
+DEFAULT_FLAG_PATTERN = r"(?:flag|HTB|picoCTF|THM|DUCTF|CTF|pwn|sun|KCTF)\{[^}]{1,200}\}"
 
-    Returns the cached FLAG_FORMAT, prompting only on the first call (or
-    when the user chooses to re-enter it). The regex is validated by
-    attempting to compile it — invalid patterns re-prompt.
+
+def _ensure_flag_format() -> str:
+    """Return the flag regex to use — fully optional, never prompts.
+
+    If the user has set FLAG_FORMAT via the [f] menu, that's used. Otherwise
+    the default multi-CTF pattern is returned silently so flag hunts always
+    work without requiring the user to configure anything.
+    """
+    return FLAG_FORMAT or DEFAULT_FLAG_PATTERN
+
+
+def _prompt_flag_format() -> str:
+    """Interactively ask the user for a custom flag regex ([f] menu).
+
+    Empty input clears any override so the default is used.
     """
     global FLAG_FORMAT
-    if FLAG_FORMAT:
-        return FLAG_FORMAT
-    cprint("\n[*] Enter the flag format for this CTF (Python/grep regex).", "yellow")
-    cprint("    Optional — press Enter to use a default multi-CTF pattern.", "dim")
+    cprint("\n[*] Enter a flag format for this CTF (Python/grep regex).", "yellow")
+    cprint("    Optional — press Enter to clear and use the default multi-CTF pattern.", "dim")
     cprint("    Examples:", "dim")
     cprint(r"      flag\{[^}]+\}        HTB\{[^}]+\}        picoCTF\{[^}]+\}", "dim")
     cprint(r"      THM\{[^}]+\}         DUCTF\{[^}]+\}      CTF\{[a-f0-9]{32}\}", "dim")
-    default_pat = r"(?:flag|HTB|picoCTF|THM|DUCTF|CTF|pwn|sun|KCTF)\{[^}]{1,200}\}"
     while True:
         pat = ask("Flag regex (blank = default)").strip()
         if not pat:
-            FLAG_FORMAT = default_pat
-            cprint(f"[+] Using default flag pattern: {default_pat}", "green")
-            return FLAG_FORMAT
+            FLAG_FORMAT = ""
+            cprint(f"[+] Cleared — using default flag pattern: {DEFAULT_FLAG_PATTERN}", "green")
+            return DEFAULT_FLAG_PATTERN
         try:
             re.compile(pat)
         except re.error as e:
@@ -904,10 +912,14 @@ def quick_triage() -> None:
             else:
                 cprint(f"  [-] {plugin_name:<32}  (no output / failed)", "dim")
 
-    # ── Phase 2: always run strings-based flag sweep ─────────────────────
-    cprint(f"\n{'─'*50}", "dim")
-    cprint("\n[*] Phase 2: Strings-based flag sweep (works on any dump) …\n", "yellow")
-    _hunt_flags_strings()
+    # ── Phase 2: strings-based flag sweep (only if user set a flag format) ─
+    if FLAG_FORMAT:
+        cprint(f"\n{'─'*50}", "dim")
+        cprint("\n[*] Phase 2: Strings-based flag sweep …\n", "yellow")
+        _hunt_flags_strings()
+    else:
+        cprint(f"\n{'─'*50}", "dim")
+        cprint("\n[*] Phase 2: Skipping flag sweep — no flag format set ([f] to set one).", "dim")
 
     cprint(f"\n{'─'*50}", "dim")
     cprint("\n[*] Phase 3: Credential strings sweep …\n", "yellow")
@@ -1927,7 +1939,7 @@ def select_dump() -> str | None:
 # ===========================================================================
 
 def main() -> None:
-    global DUMP_PATH, OUT_DIR, VOL_CMD, FLAG_FORMAT
+    global DUMP_PATH, OUT_DIR, VOL_CMD
 
     parser = argparse.ArgumentParser(
         description="memhunter — Interactive Memory Forensics for CTF (Linux + Windows)",
@@ -2024,8 +2036,7 @@ def main() -> None:
         elif choice == "o":
             _select_os()
         elif choice == "f":
-            FLAG_FORMAT = ""
-            _ensure_flag_format()
+            _prompt_flag_format()
         else:
             cprint("[!] Unknown option.", "red")
 
