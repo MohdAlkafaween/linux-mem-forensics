@@ -51,7 +51,7 @@ DUMP_PATH   = None          # set after argument parsing / menu selection
 OUT_DIR     = None          # timestamped output directory
 VOL_CMD     = None          # path to vol / vol3 / python3 vol.py
 OS_TYPE     = "linux"       # "linux" or "windows" — chosen at startup
-FLAG_FORMAT = ""            # user-supplied flag regex (e.g. flag\{[^}]+\})
+FLAG_FORMAT = ""            # user-supplied string-search regex (e.g. password|secret)
 HITS_JSON   = []            # accumulated structured hits for --json export
 
 
@@ -193,21 +193,21 @@ def _ensure_flag_format() -> str:
 
 
 def _prompt_flag_format() -> str:
-    """Interactively ask the user for a custom flag regex ([f] menu).
+    """Interactively ask the user for a custom string-search regex ([f] menu).
 
     Empty input clears any override so the default is used.
     """
     global FLAG_FORMAT
-    cprint("\n[*] Enter a flag format for this CTF (Python/grep regex).", "yellow")
-    cprint("    Optional — press Enter to clear and use the default multi-CTF pattern.", "dim")
+    cprint("\n[*] Enter a string search pattern (Python/grep regex).", "yellow")
+    cprint("    Optional — press Enter to clear and use the default pattern.", "dim")
     cprint("    Examples:", "dim")
-    cprint(r"      flag\{[^}]+\}        HTB\{[^}]+\}        picoCTF\{[^}]+\}", "dim")
-    cprint(r"      THM\{[^}]+\}         DUCTF\{[^}]+\}      CTF\{[a-f0-9]{32}\}", "dim")
+    cprint(r"      password|secret       admin.*login        [A-Za-z0-9+/]{40,}", "dim")
+    cprint(r"      \.exe$               C:\\Windows\\Temp    https?://[^\s]+", "dim")
     while True:
-        pat = ask("Flag regex (blank = default)").strip()
+        pat = ask("Search regex (blank = default)").strip()
         if not pat:
             FLAG_FORMAT = ""
-            cprint(f"[+] Cleared — using default flag pattern: {DEFAULT_FLAG_PATTERN}", "green")
+            cprint(f"[+] Cleared — using default pattern: {DEFAULT_FLAG_PATTERN}", "green")
             return DEFAULT_FLAG_PATTERN
         try:
             re.compile(pat)
@@ -215,7 +215,7 @@ def _prompt_flag_format() -> str:
             cprint(f"[!] Invalid regex: {e}", "red")
             continue
         FLAG_FORMAT = pat
-        cprint(f"[+] Flag format set to: {pat}", "green")
+        cprint(f"[+] String search set to: {pat}", "green")
         return FLAG_FORMAT
 
 
@@ -508,7 +508,7 @@ def run_vol(plugin: str, extra_args: str = "", save_as: str = "") -> str:
             cprint("    2. The Linux symbol pack is missing for this kernel.", "yellow")
             cprint("       Download from: https://github.com/volatilityfoundation/volatility3/releases", "dim")
         cprint("\n    Use strings-based analysis instead (no Volatility needed):", "bold cyan")
-        cprint("    → Option [5] → [4]  :  flag pattern sweep", "cyan")
+        cprint("    → Option [5] → [4]  :  string pattern sweep", "cyan")
         cprint("    → Option [5] → [5]  :  base64 hunt & decode", "cyan")
         cprint("    → Option [5] → [6]  :  credential strings", "cyan")
         cprint("    → Option [7]        :  full strings search menu", "cyan")
@@ -808,7 +808,7 @@ MAIN_MENU = [
     ("2",  "Process Analysis",       "pslist, pstree, cmdline, envars"),
     ("3",  "Network Analysis",       "netstat, sockstat, connection forensics"),
     ("4",  "File System Hunting",    "find_file, inode cache, VFS artefacts"),
-    ("5",  "Credential & Flag Hunt", "bash history, env vars, raw strings"),
+    ("5",  "Credential & String Hunt","bash history, env vars, raw strings"),
     ("6",  "Kernel / Rootkit Check", "lsmod, syscall table, IDT hooks"),
     ("7",  "Strings Search",         "Grep raw dump without Volatility"),
     ("8",  "Custom Plugin",          "Run any Volatility plugin manually"),
@@ -817,7 +817,7 @@ MAIN_MENU = [
     ("y",  "YARA scan",              "Run yara rules against the dump"),
     ("be", "bulk_extractor",         "One-click artefact carving"),
     ("pk", "pypykatz (LSASS)",       "Dump LSASS via memmap + pypykatz (Windows)"),
-    ("j",  "Export hits to JSON",    "Save structured flag/cred hits to hits.json"),
+    ("j",  "Export hits to JSON",    "Save structured hits to hits.json"),
     ("h",  "Health check",           "Re-run dependency/version checks"),
     ("?",  "Help",                   "Usage tips + full Volatility plugin list"),
     ("",   "",                       ""),
@@ -830,7 +830,7 @@ MAIN_MENU = [
     ("iy", "Install YARA",                "apt install yara"),
     ("d",  "Change dump file",         "Load a different memory image"),
     ("o",  "Change OS (linux/windows)","Re-select the target OS for plugin mapping"),
-    ("f",  "Change flag format",       "Enter a new flag regex for this CTF"),
+    ("f",  "Change string search",     "Enter a new search regex pattern"),
     ("q",  "Quit",                     "Exit memhunter"),
 ]
 
@@ -912,14 +912,14 @@ def quick_triage() -> None:
             else:
                 cprint(f"  [-] {plugin_name:<32}  (no output / failed)", "dim")
 
-    # ── Phase 2: strings-based flag sweep (only if user set a flag format) ─
+    # ── Phase 2: strings-based sweep (only if user set a search pattern) ─
     if FLAG_FORMAT:
         cprint(f"\n{'─'*50}", "dim")
-        cprint("\n[*] Phase 2: Strings-based flag sweep …\n", "yellow")
+        cprint("\n[*] Phase 2: Strings-based search sweep …\n", "yellow")
         _hunt_flags_strings()
     else:
         cprint(f"\n{'─'*50}", "dim")
-        cprint("\n[*] Phase 2: Skipping flag sweep — no flag format set ([f] to set one).", "dim")
+        cprint("\n[*] Phase 2: Skipping string sweep — no search pattern set ([f] to set one).", "dim")
 
     cprint(f"\n{'─'*50}", "dim")
     cprint("\n[*] Phase 3: Credential strings sweep …\n", "yellow")
@@ -1050,14 +1050,14 @@ def _find_file_prompt() -> None:
 
 
 def credential_flag_hunt() -> None:
-    header("Credential & Flag Hunt")
-    cprint("[*] Targets the most common CTF flag and credential locations.\n", "yellow")
+    header("Credential & String Hunt")
+    cprint("[*] Targets common credential and string-pattern locations.\n", "yellow")
     cprint("    [vol] = needs Volatility + real dump   [str] = works on any dump\n", "dim")
     opts = [
         ("1", "bash history      [vol] — .bash_history per process"),
         ("2", "envars full       [vol] — dump ALL environment variables"),
-        ("3", "envars → flag     [vol] — grep envars for your flag format"),
-        ("4", "strings → flags   [str] — grep raw dump for your flag format  ← START HERE"),
+        ("3", "envars → search   [vol] — grep envars for your search pattern"),
+        ("4", "strings → search  [str] — grep raw dump for your search pattern  ← START HERE"),
         ("5", "strings → base64  [str] — find & decode base64 blobs"),
         ("6", "strings → creds   [str] — grep for password/secret/key/token"),
         ("7", "credentials plugin[vol] — UID/GID per process"),
@@ -1139,7 +1139,7 @@ def _hunt_flags_envars() -> None:
             cprint(f"  {h}", "yellow")
         save_result("flag_envars.txt", "\n".join(hits))
     else:
-        cprint(f"[!] Flag format '{pat}' not found in envars.", "yellow")
+        cprint(f"[!] Pattern '{pat}' not found in envars.", "yellow")
         cprint("[>] Falling back to raw strings scan …", "dim")
         _hunt_flags_strings()
 
@@ -1163,13 +1163,13 @@ def _hunt_flags_strings() -> None:
     output = (out1 + out2).strip()
     if output:
         hits = sorted(set(output.splitlines()))
-        cprint(f"\n[+] Found {len(hits)} unique flag string(s):", "bold green")
+        cprint(f"\n[+] Found {len(hits)} unique match(es):", "bold green")
         for h in hits:
             cprint(f"  {h}", "bold yellow")
             _record_hit("flag", h, "strings")
         save_result("flag_hits.txt", "\n".join(hits))
     else:
-        cprint(f"[!] Flag format '{pat}' not found in raw strings.", "yellow")
+        cprint(f"[!] Pattern '{pat}' not found in raw strings.", "yellow")
         cprint("[>] Try option 5 (base64) — the flag might be encoded.", "dim")
 
 
@@ -1264,7 +1264,7 @@ def strings_search() -> None:
     opts = [
         ("1", "Custom pattern search"),
         ("2", "Extract all strings to file"),
-        ("3", "Flag pattern sweep (uses the flag format you enter)"),
+        ("3", "String pattern sweep (uses the search pattern you enter)"),
         ("4", "Network artefacts (IPs, URLs, emails)"),
         ("5", "Base64 hunt & decode"),
         ("b", "Back"),
@@ -1617,7 +1617,7 @@ def generate_report() -> None:
         f.write("# memhunter Report\n\n")
         f.write(f"- **Dump:** `{DUMP_PATH}`\n")
         f.write(f"- **OS:** {OS_TYPE}\n")
-        f.write(f"- **Flag format:** `{FLAG_FORMAT or 'n/a'}`\n")
+        f.write(f"- **String Search:** `{FLAG_FORMAT or 'n/a'}`\n")
         f.write(f"- **Generated:** {datetime.now().isoformat()}\n\n")
         f.write("## Contents\n\n")
         for tf in files:
@@ -2001,7 +2001,7 @@ def generate_report() -> None:
     ts_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     dump_esc = _h.escape(str(DUMP_PATH) if DUMP_PATH else 'n/a')
     os_esc = _h.escape(OS_TYPE or 'n/a')
-    flag_esc = _h.escape(FLAG_FORMAT or 'n/a')
+    search_esc = _h.escape(FLAG_FORMAT or 'n/a')
 
     page = f"""\
 <!DOCTYPE html>
@@ -2838,8 +2838,8 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
         <div class="mc-val">{os_esc}</div>
       </div>
       <div class="meta-chip">
-        <div class="mc-label">Flag Format</div>
-        <div class="mc-val">{flag_esc}</div>
+        <div class="mc-label">String Search</div>
+        <div class="mc-val">{search_esc}</div>
       </div>
       <div class="meta-chip">
         <div class="mc-label">Generated</div>
@@ -3701,7 +3701,7 @@ function exportPDF() {{
     '<h2>Case Information</h2>' +
     '<div class="case-row"><span class="case-label">Memory Dump:</span><span class="case-val">{dump_esc}</span></div>' +
     '<div class="case-row"><span class="case-label">Operating System:</span><span class="case-val">{os_esc}</span></div>' +
-    '<div class="case-row"><span class="case-label">Flag Format:</span><span class="case-val">{flag_esc}</span></div>' +
+    '<div class="case-row"><span class="case-label">String Search:</span><span class="case-val">{search_esc}</span></div>' +
     '<div class="case-row"><span class="case-label">Report Generated:</span><span class="case-val">{ts_now}</span></div>' +
     '<div class="case-row"><span class="case-label">IOC Groups:</span><span class="case-val">' + iocFolders.filter(f=>f.results.length>0).length + '</span></div>' +
     '<div class="case-row"><span class="case-label">Total Indicators:</span><span class="case-val">' + totalResults + '</span></div>' +
@@ -3984,7 +3984,7 @@ def export_json() -> None:
     payload = {
         "dump": DUMP_PATH,
         "os": OS_TYPE,
-        "flag_format": FLAG_FORMAT,
+        "string_search": FLAG_FORMAT,
         "generated": datetime.now().isoformat(),
         "hits": HITS_JSON,
     }
@@ -4026,7 +4026,7 @@ def show_help() -> None:
 
   1. Load a dump (argv, or menu `d`)
   2. memhunter auto-detects OS — confirms Linux or Windows
-  3. Enter your flag regex when prompted (e.g. `flag\\{[^}]+\\}`)
+  3. Enter a search pattern via [f] (e.g. `password|secret|admin`)
   4. Run **[1] Quick Triage** — parallel plugin sweep + flag/cred strings
   5. Inspect `results_*/` — severity summary flags the interesting files
   6. **[r]** Report  — stitch everything into `report.md` / `report.html`
@@ -4047,7 +4047,7 @@ def show_help() -> None:
   [be] bulk_extractor       [pk] pypykatz LSASS (Windows)
   [j] Export hits → JSON    [h]  Health check
   [cs1-4] Cheat sheets      [i]  Install Volatility 3
-  [d] Change dump           [o]  Change OS        [f] Change flag format
+  [d] Change dump           [o]  Change OS        [f] Change string search
 
 ## Tips
 
@@ -4202,9 +4202,9 @@ def main() -> None:
             cprint(f"  Out  : [cyan]{OUT_DIR.resolve() if OUT_DIR else 'none'}[/cyan]",
                    "dim") if RICH else \
             print(f"  Out  : {OUT_DIR.resolve() if OUT_DIR else 'none'}")
-            cprint(f"  OS   : [cyan]{OS_TYPE}[/cyan]    Flag : [cyan]{FLAG_FORMAT or '(not set)'}[/cyan]\n",
+            cprint(f"  OS   : [cyan]{OS_TYPE}[/cyan]    Search : [cyan]{FLAG_FORMAT or '(not set)'}[/cyan]\n",
                    "dim") if RICH else \
-            print(f"  OS   : {OS_TYPE}    Flag : {FLAG_FORMAT or '(not set)'}\n")
+            print(f"  OS   : {OS_TYPE}    Search : {FLAG_FORMAT or '(not set)'}\n")
         else:
             cprint("\n  [!] No dump loaded — use option [d] to select a file\n", "yellow")
 
