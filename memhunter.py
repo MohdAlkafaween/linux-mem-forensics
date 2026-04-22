@@ -1905,7 +1905,18 @@ def generate_report() -> None:
         f'<h1 class="page-title"><i class="fas fa-project-diagram"></i> Process Tree</h1>'
         f'<p class="plugin-meta">Visual parent-child hierarchy &bull; '
         f'Click any node to view process details</p>'
-        f'<div class="proc-tree">{tree_nodes_html}</div></div>\n'
+        f'<div class="view-controls">'
+        f'<label class="vc-label"><i class="fas fa-search-plus"></i> Zoom</label>'
+        f'<input type="range" class="vc-range" id="pt-zoom" min="30" max="200" value="100" '
+        f'oninput="ptApplyView()">'
+        f'<span class="vc-val" id="pt-zoom-val">100%</span>'
+        f'<label class="vc-label"><i class="fas fa-arrows-alt"></i> Margin</label>'
+        f'<input type="range" class="vc-range" id="pt-margin" min="0" max="120" value="10" '
+        f'oninput="ptApplyView()">'
+        f'<span class="vc-val" id="pt-margin-val">10px</span>'
+        f'</div>'
+        f'<div class="proc-tree-wrap" id="pt-wrap">'
+        f'<div class="proc-tree" id="proc-tree-inner">{tree_nodes_html}</div></div></div>\n'
     )
 
     # --- network map page ---
@@ -1961,6 +1972,15 @@ def generate_report() -> None:
         f'<button class="nm-btn" onclick="nmToggleLabels()"><i class="fas fa-tags"></i> Labels</button>'
         f'<label class="nm-filter"><input type="checkbox" id="nm-sus-only" onchange="nmFilter()"> '
         f'Suspicious only</label>'
+        f'<span class="vc-sep"></span>'
+        f'<label class="vc-label"><i class="fas fa-search-plus"></i> Zoom</label>'
+        f'<input type="range" class="vc-range" id="nm-zoom" min="30" max="300" value="100" '
+        f'oninput="nmApplyView()">'
+        f'<span class="vc-val" id="nm-zoom-val">100%</span>'
+        f'<label class="vc-label"><i class="fas fa-arrows-alt"></i> Margin</label>'
+        f'<input type="range" class="vc-range" id="nm-margin" min="0" max="200" value="0" '
+        f'oninput="nmApplyView()">'
+        f'<span class="vc-val" id="nm-margin-val">0px</span>'
         f'</div>'
         f'<div class="netmap-container" id="netmap-container">'
         f'<svg id="netmap-svg"></svg>'
@@ -2028,6 +2048,29 @@ def generate_report() -> None:
   --sidebar-w: 260px;
   --evidence-w: 340px;
 }}
+body.light-theme {{
+  --bg: #f0f2f5; --bg2: #e8eaef; --surface: #ffffff;
+  --surface2: #f5f6fa; --border: #d0d3e0;
+  --text: #1a1a2e; --text-dim: #6b7094; --text-bright: #0a0a18;
+  --neon-cyan: #0088aa; --neon-magenta: #c000a0; --neon-yellow: #998800;
+  --neon-green: #00884a; --neon-red: #cc1133; --neon-orange: #cc6600;
+  --neon-blue: #2266cc; --neon-purple: #7733bb;
+  --glow-cyan: none; --glow-magenta: none; --glow-red: none; --glow-green: none;
+}}
+body.light-theme .sidebar {{
+  background: #1a1a2e; border-right-color: #2a2a44;
+}}
+body.light-theme .main {{ background: var(--bg); }}
+body.light-theme .page-title {{ text-shadow: none; }}
+body.light-theme .stat-card {{ box-shadow: 0 2px 8px rgba(0,0,0,.08); }}
+body.light-theme .data-table th {{ background: #e0e2ea; color: #1a1a2e; }}
+body.light-theme .data-table tr:hover {{ background: rgba(0,0,0,.03); }}
+body.light-theme .output-block {{ background: #fafbfd; }}
+body.light-theme .code-line:hover {{ background: rgba(0,0,0,.04); }}
+body.light-theme .netmap-container {{ background: #ffffff; }}
+body.light-theme .proc-tree-wrap {{ background: #ffffff; }}
+body.light-theme .evidence-panel {{ background: #f5f6fa; }}
+
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 html {{ scrollbar-width: thin; scrollbar-color: var(--neon-cyan) var(--bg); }}
 body {{
@@ -2101,6 +2144,18 @@ body::after {{
   color: var(--neon-magenta); letter-spacing: .15em; margin-top: .2em;
   opacity: .5;
 }}
+.theme-toggle {{
+  position: absolute; top: .6em; right: .6em;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+  color: var(--neon-yellow); font-size: .8em; width: 28px; height: 28px;
+  border-radius: 50%; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: background .2s, border-color .2s;
+}}
+.theme-toggle:hover {{
+  background: rgba(255,255,255,.15); border-color: var(--neon-yellow);
+}}
+.sidebar-brand {{ position: relative; }}
 .nav-section {{
   padding: .8em 1em .3em; font-family: 'Orbitron', monospace;
   font-size: .55em; color: var(--neon-cyan); letter-spacing: .25em;
@@ -2481,6 +2536,34 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
 }}
 .tree-children {{ margin-left: 0; }}
 
+/* view controls (shared by tree + netmap) */
+.view-controls {{
+  display: flex; gap: .5em; align-items: center; flex-wrap: wrap;
+  margin-bottom: .8em; padding: .4em .6em;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px;
+}}
+.vc-label {{
+  font-family: 'Rajdhani', sans-serif; font-size: .75em;
+  color: var(--text-dim); display: flex; align-items: center; gap: .25em;
+}}
+.vc-range {{
+  width: 100px; accent-color: var(--neon-cyan); cursor: pointer;
+}}
+.vc-val {{
+  font-family: 'Share Tech Mono', monospace; font-size: .7em;
+  color: var(--neon-cyan); min-width: 3.5em;
+}}
+.vc-sep {{
+  width: 1px; height: 1.2em; background: var(--border); margin: 0 .3em;
+}}
+
+/* proc tree wrapper */
+.proc-tree-wrap {{
+  overflow: auto; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; max-height: 75vh;
+}}
+
 /* network map */
 .netmap-controls {{
   display: flex; gap: .6em; align-items: center;
@@ -2784,6 +2867,9 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
     <h1>MEMHUNTER</h1>
     <div class="sub">Memory Forensics</div>
     <div class="author">by FALCON</div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+      <i class="fas fa-sun" id="theme-icon"></i>
+    </button>
   </div>
   <div class="nav-section">Navigation</div>
   {sidebar_items}
@@ -3274,6 +3360,31 @@ function renderEvidence() {{
   evList.innerHTML = html;
 }}
 
+// ========== Theme Toggle ==========
+function toggleTheme() {{
+  document.body.classList.toggle('light-theme');
+  const icon = document.getElementById('theme-icon');
+  if (document.body.classList.contains('light-theme')) {{
+    icon.className = 'fas fa-moon';
+  }} else {{
+    icon.className = 'fas fa-sun';
+  }}
+}}
+
+// ========== Process Tree Zoom/Margin ==========
+function ptApplyView() {{
+  const zoom = document.getElementById('pt-zoom').value;
+  const margin = document.getElementById('pt-margin').value;
+  document.getElementById('pt-zoom-val').textContent = zoom + '%';
+  document.getElementById('pt-margin-val').textContent = margin + 'px';
+  const inner = document.getElementById('proc-tree-inner');
+  if (inner) {{
+    inner.style.transform = 'scale(' + (zoom / 100) + ')';
+    inner.style.transformOrigin = 'top left';
+    inner.style.padding = margin + 'px';
+  }}
+}}
+
 // ========== Network Map ==========
 (function() {{
   const NET_DATA = {net_json};
@@ -3605,6 +3716,22 @@ function renderEvidence() {{
     susOnly = document.getElementById('nm-sus-only').checked;
     render();
     startSim();
+  }};
+
+  window.nmApplyView = function() {{
+    const zoom = document.getElementById('nm-zoom').value;
+    const margin = document.getElementById('nm-margin').value;
+    document.getElementById('nm-zoom-val').textContent = zoom + '%';
+    document.getElementById('nm-margin-val').textContent = margin + 'px';
+    const scale = 100 / zoom;
+    const m = parseInt(margin);
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const vbW = w * scale + m * 2;
+    const vbH = h * scale + m * 2;
+    const vbX = -(m + (w * scale - w) / 2);
+    const vbY = -(m + (h * scale - h) / 2);
+    svg.setAttribute('viewBox', vbX + ' ' + vbY + ' ' + vbW + ' ' + vbH);
   }};
 
   // Init on page show
