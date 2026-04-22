@@ -1834,6 +1834,14 @@ def generate_report() -> None:
 
         proc_detail_pages += (
             f'<div class="page" id="page-proc-{pid}">'
+            f'<div class="back-nav">'
+            f'<button class="back-btn" onclick="showPage(\'processes\')">'
+            f'<i class="fas fa-arrow-left"></i> Process Explorer</button>'
+            f'<button class="back-btn" onclick="showPage(\'proctree\')">'
+            f'<i class="fas fa-project-diagram"></i> Process Tree</button>'
+            f'<button class="back-btn" onclick="showPage(\'netmap\')">'
+            f'<i class="fas fa-globe-americas"></i> Network Map</button>'
+            f'</div>'
             f'<h1 class="page-title proc-title">'
             f'<i class="fas fa-microchip"></i> {_h.escape(p["name"])} '
             f'<span class="pid-tag">PID {pid}</span></h1>'
@@ -1902,9 +1910,15 @@ def generate_report() -> None:
 
     proc_tree_page = (
         f'<div class="page" id="page-proctree">'
-        f'<h1 class="page-title"><i class="fas fa-project-diagram"></i> Process Tree</h1>'
-        f'<p class="plugin-meta">Visual parent-child hierarchy &bull; '
-        f'Click any node to view process details</p>'
+        f'<div class="page-toolbar">'
+        f'<div class="page-toolbar-left">'
+        f'<button class="back-btn" onclick="showPage(\'processes\')">'
+        f'<i class="fas fa-table"></i> Explorer</button>'
+        f'<button class="back-btn" onclick="showPage(\'netmap\')">'
+        f'<i class="fas fa-globe-americas"></i> Net Map</button>'
+        f'<button class="back-btn" onclick="showPage(\'dashboard\')">'
+        f'<i class="fas fa-tachometer-alt"></i> Dashboard</button>'
+        f'</div>'
         f'<div class="view-controls">'
         f'<div class="vc-group">'
         f'<i class="fas fa-search-plus vc-icon"></i>'
@@ -1919,6 +1933,8 @@ def generate_report() -> None:
         f'<button class="vc-btn" onclick="ptMargin(1)">+</button>'
         f'</div>'
         f'</div>'
+        f'</div>'
+        f'<h1 class="page-title"><i class="fas fa-project-diagram"></i> Process Tree</h1>'
         f'<div class="proc-tree-wrap" id="pt-wrap">'
         f'<div class="proc-tree" id="proc-tree-inner">{tree_nodes_html}</div></div></div>\n'
     )
@@ -1967,10 +1983,15 @@ def generate_report() -> None:
 
     netmap_page = (
         f'<div class="page" id="page-netmap">'
-        f'<h1 class="page-title"><i class="fas fa-globe-americas"></i> Network Map</h1>'
-        f'<p class="plugin-meta">Interactive connection graph &bull; '
-        f'Drag nodes to rearrange &bull; Hover for details &bull; '
-        f'Red edges = suspicious ports</p>'
+        f'<div class="page-toolbar">'
+        f'<div class="page-toolbar-left">'
+        f'<button class="back-btn" onclick="showPage(\'processes\')">'
+        f'<i class="fas fa-table"></i> Explorer</button>'
+        f'<button class="back-btn" onclick="showPage(\'proctree\')">'
+        f'<i class="fas fa-project-diagram"></i> Tree</button>'
+        f'<button class="back-btn" onclick="showPage(\'dashboard\')">'
+        f'<i class="fas fa-tachometer-alt"></i> Dashboard</button>'
+        f'</div>'
         f'<div class="netmap-controls">'
         f'<button class="nm-btn" onclick="nmResetLayout()"><i class="fas fa-redo"></i> Reset</button>'
         f'<button class="nm-btn" onclick="nmToggleLabels()"><i class="fas fa-tags"></i> Labels</button>'
@@ -1990,6 +2011,8 @@ def generate_report() -> None:
         f'<button class="vc-btn" onclick="nmMargin(1)">+</button>'
         f'</div>'
         f'</div>'
+        f'</div>'
+        f'<h1 class="page-title"><i class="fas fa-globe-americas"></i> Network Map</h1>'
         f'<div class="netmap-container" id="netmap-container">'
         f'<svg id="netmap-svg"></svg>'
         f'</div>'
@@ -2406,6 +2429,41 @@ body.light-theme .theme-toggle {{
 }}
 .page-title i {{ margin-right: .4em; }}
 .page-title .badge {{ font-size: .55em; vertical-align: middle; }}
+
+/* back nav & page toolbar */
+.back-nav {{
+  display: flex; gap: .4em; margin-bottom: .8em; flex-wrap: wrap;
+}}
+.back-btn {{
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); font-family: 'Rajdhani', sans-serif;
+  font-size: .75em; padding: .3em .7em; border-radius: 5px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: .3em;
+  transition: border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}}
+.back-btn:hover {{ border-color: var(--neon-cyan); color: var(--neon-cyan); }}
+.back-btn:active {{ transform: scale(.95); }}
+.back-btn i {{ font-size: .85em; }}
+body.light-theme .back-btn {{
+  background: #ffffff; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .back-btn:hover {{ border-color: #0077aa; color: #0077aa; }}
+
+.page-toolbar {{
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  padding: .5em 0; margin: -2em -2em 1em -2em; padding: .5em 2em;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: .5em;
+  backdrop-filter: blur(8px);
+}}
+body.light-theme .page-toolbar {{
+  background: rgba(238,240,244,.9); border-color: #ccd0dc;
+}}
+.page-toolbar-left {{
+  display: flex; gap: .4em; flex-wrap: wrap;
+}}
 
 /* === DASHBOARD === */
 .dash-grid {{
