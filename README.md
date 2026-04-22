@@ -4,6 +4,9 @@ Interactive memory forensics toolkit — works on both **Linux** and **Windows**
 memory dumps. Built for incident response, malware analysis, and forensic
 investigations.
 
+**Author:** [Mohd Alkafween](https://github.com/MohdAlkafaween)  
+**Version:** 2.1.0
+
 | Component | Purpose |
 |---|---|
 | **`memhunter.py`** | Interactive CLI — memory dump *analysis* (Linux + Windows) |
@@ -49,7 +52,7 @@ On startup, memhunter:
  | |  | |  __/ | | | | |  _  | |_| | | | | ||  __/ |
  |_|  |_|\___|_| |_| |_|_| |_|\__,_|_| |_|\__\___|_|
 
-  memhunter — Memory Forensics Toolkit  v3.0.0  (Linux + Windows)
+  memhunter — Memory Forensics Toolkit  v2.1.0  (Linux + Windows)
 ```
 
 ### Features
@@ -151,14 +154,15 @@ Invalid regexes are rejected and you're prompted again.
 
 ### Requirements
 
-**Required**
+The `install.sh` script automatically detects what's needed and installs it:
 
-- Python 3.10+
-- [`rich`](https://github.com/Textualize/rich) — `pip3 install rich` (pre-installed on Kali)
-- [Volatility 3](https://github.com/volatilityfoundation/volatility3) — installed by `install.sh` or option `[i]`
-- `strings`, `grep -P` — standard Linux utilities (always present)
+- Python 3.8+ (auto-detected)
+- Kali / Debian / RHEL / Arch (auto-detected)
+- [Volatility 3](https://github.com/volatilityfoundation/volatility3) (auto-installed)
+- `strings`, `grep` (standard Linux utilities)
+- Kernel headers (for memdump.ko only)
 
-**Optional** (enable extra menu items — the health check reports what's missing)
+**Optional** — install.sh handles these if requested, or install manually:
 
 - [`yara`](https://github.com/VirusTotal/yara) — `sudo apt install yara`
 - [`bulk_extractor`](https://github.com/simsong/bulk_extractor) — `sudo apt install bulk-extractor`
@@ -262,13 +266,60 @@ memhunter/
 
 ---
 
+## Limitations
+
+- **Encrypted memory dumps** — Cannot analyse encrypted/hypervisor-encrypted memory (Intel TME, AMD SME)
+- **Live Windows acquisition** — No built-in Windows memory acquisition (use DumpIt/WinPMEM/FTK Imager)
+- **ARM/32-bit** — Requires 64-bit x86_64 kernel
+- **Compressed dumps** — Must be decompressed before analysis
+- **Crash dumps** — May require profile adjustment
+
+## Troubleshooting
+
+### Volatility shows "Unsatisfied requirement"
+- **Cause:** Missing symbol pack for the dump's kernel version
+- **Fix:** Download symbols from https://github.com/volatilityfoundation/volatility3/releases
+
+### "No suitable address space"
+- **Cause:** Dump file is truncated or corrupted
+- **Fix:** Verify dump file size matches expected memory size
+
+### LKM fails to load (memdump.ko)
+- **Cause:** Secure Boot enabled or kernel lockdown active
+- **Fix:** Disable Secure Boot or sign the module with MOK key
+
+### memhunter.py shows no output
+- **Cause:** Run as non-root; Volatility may need elevated privileges for some plugins
+- **Fix:** Run with `sudo python3 memhunter.py`
+
 ## Security Considerations
 
 - **Root required** — `insmod` needs `CAP_SYS_MODULE`
 - **Secure Boot** — module must be signed with an enrolled MOK key, or SB disabled
 - **Kernel lockdown** — use `lockdown=integrity` or `lockdown=none` if `ioremap_cache` is blocked
 - **Output file** — created mode `0600`; move to encrypted storage immediately
+- **Authorized use only** — This tool is for authorized security testing and forensic investigations. Unauthorized memory acquisition is illegal.
 
 ## License
 
 GPL-2.0 — required for modules that reference GPL-only kernel symbols.
+
+---
+
+## Changelog
+
+### v2.1.0 (2026-04)
+- Added parallel Quick Triage with 4-worker thread pool
+- Added cyberpunk HTML report UI
+- Added YARA integration
+- Added bulk_extractor bridge
+- Added pypykatz bridge for Windows LSASS
+
+### v2.0.0 (2026-03)
+- Added Windows memory dump support
+- Added OS auto-detection via banners.Banners
+- Added JSON export
+
+### v1.0.0 (2026-01)
+- Initial release
+- Linux memory acquisition and analysis

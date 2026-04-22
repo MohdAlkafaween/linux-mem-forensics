@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-memhunter.py — Interactive Memory Forensics Tool for CTF Competitions
-=====================================================================
+memhunter.py — Interactive Memory Forensics Toolkit
+=============================================
 Wraps Volatility 3 with guided workflows, built-in cheat sheets, and
-CTF-specific hunting techniques for both Linux and Windows memory dumps.
+forensic hunting techniques for both Linux and Windows memory dumps.
+Built for incident response, malware analysis, and forensic investigations.
 All output is saved to a timestamped results directory so nothing is lost
 between sessions.
 
@@ -162,14 +163,14 @@ def banner() -> None:
         console.print(art, style="bold green")
         console.print(
             Panel(
-                "[bold white]memhunter — Memory Forensics for CTFs[/bold white]\n"
+                "[bold white]memhunter — Memory Forensics Toolkit[/bold white]\n"
                 f"[dim]v{VERSION}  |  Linux + Windows  |  Powered by Volatility 3[/dim]",
                 border_style="green",
             )
         )
     else:
         print(art)
-        print(f"  memhunter — Memory Forensics for CTFs  v{VERSION}  (Linux + Windows)\n")
+        print(f"  memhunter — Memory Forensics Toolkit  v{VERSION}  (Linux + Windows)\n")
 
 
 def ask(prompt: str, default: str = "") -> str:
@@ -1835,12 +1836,8 @@ def generate_report() -> None:
         proc_detail_pages += (
             f'<div class="page" id="page-proc-{pid}">'
             f'<div class="back-nav">'
-            f'<button class="back-btn" onclick="showPage(\'processes\')">'
-            f'<i class="fas fa-arrow-left"></i> Process Explorer</button>'
-            f'<button class="back-btn" onclick="showPage(\'proctree\')">'
-            f'<i class="fas fa-project-diagram"></i> Process Tree</button>'
-            f'<button class="back-btn" onclick="showPage(\'netmap\')">'
-            f'<i class="fas fa-globe-americas"></i> Network Map</button>'
+            f'<button class="back-btn" onclick="goBack()">'
+            f'<i class="fas fa-arrow-left"></i> Back</button>'
             f'</div>'
             f'<h1 class="page-title proc-title">'
             f'<i class="fas fa-microchip"></i> {_h.escape(p["name"])} '
@@ -2341,22 +2338,28 @@ body::after {{
   opacity: .5;
 }}
 .theme-toggle {{
-  position: fixed; top: 1em; right: 1em; z-index: 9500;
-  background: var(--surface); border: 1px solid var(--border);
-  color: var(--neon-yellow); font-size: .78em;
-  padding: .35em .8em; border-radius: 20px;
-  cursor: pointer; display: flex; align-items: center; gap: .4em;
-  transition: background .2s, border-color .2s, color .2s;
+  position: fixed; top: .6em; right: .6em; z-index: 9500;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--neon-yellow); font-size: .72em;
+  padding: .3em .65em; border-radius: 16px;
+  cursor: pointer; display: flex; align-items: center; gap: .35em;
+  transition: background .2s, border-color .2s, color .2s, right .3s;
   font-family: 'Rajdhani', sans-serif;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2);
 }}
 .theme-toggle:hover {{ border-color: var(--neon-yellow); }}
-.theme-toggle:active {{ transform: scale(.95); }}
-.theme-label {{ font-size: .9em; letter-spacing: .05em; }}
+.theme-toggle:active {{ transform: scale(.93); }}
+.theme-label {{ font-size: .85em; letter-spacing: .04em; }}
 body.light-theme .theme-toggle {{
   background: #ffffff; border-color: #c0c4d8; color: #4a4e6a;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}}
+.main.evidence-open ~ .theme-toggle,
+body.evidence-open .theme-toggle {{
+  right: calc(var(--evidence-w) + .6em);
 }}
 .nav-section {{
   padding: .8em 1em .3em; font-family: 'Orbitron', monospace;
@@ -2452,14 +2455,14 @@ body.light-theme .back-btn:hover {{ border-color: #0077aa; color: #0077aa; }}
 
 .page-toolbar {{
   position: sticky; top: 0; z-index: 100;
-  background: var(--bg); border-bottom: 1px solid var(--border);
-  padding: .5em 0; margin: -2em -2em 1em -2em; padding: .5em 2em;
+  background: rgba(5,6,10,.85); border-bottom: 1px solid var(--border);
+  margin: 0 0 1em 0; padding: .4em 0;
   display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: .5em;
-  backdrop-filter: blur(8px);
+  flex-wrap: wrap; gap: .4em;
+  backdrop-filter: blur(10px);
 }}
 body.light-theme .page-toolbar {{
-  background: rgba(238,240,244,.9); border-color: #ccd0dc;
+  background: rgba(238,240,244,.92); border-color: #ccd0dc;
 }}
 .page-toolbar-left {{
   display: flex; gap: .4em; flex-wrap: wrap;
@@ -3230,7 +3233,15 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
 
 <script>
 // ========== Navigation ==========
+const pageHistory = ['dashboard'];
+let currentPage = 'dashboard';
+
 function showPage(id) {{
+  if (id !== currentPage) {{
+    pageHistory.push(currentPage);
+    if (pageHistory.length > 50) pageHistory.shift();
+  }}
+  currentPage = id;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item, .nav-plugin').forEach(n => n.classList.remove('active'));
   const pg = document.getElementById('page-' + id);
@@ -3243,6 +3254,18 @@ function showPage(id) {{
       g.classList.toggle('open', g.dataset.cat === cat);
     }});
   }}
+  window.scrollTo(0, 0);
+}}
+
+function goBack() {{
+  const prev = pageHistory.length > 0 ? pageHistory.pop() : 'dashboard';
+  currentPage = prev;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item, .nav-plugin').forEach(n => n.classList.remove('active'));
+  const pg = document.getElementById('page-' + prev);
+  if (pg) pg.classList.add('active');
+  const nav = document.querySelector('[data-page="' + prev + '"]');
+  if (nav) nav.classList.add('active');
   window.scrollTo(0, 0);
 }}
 
@@ -3283,6 +3306,14 @@ function toggleEvidence() {{
   evPanel.classList.toggle('open');
   mainEl.classList.toggle('evidence-open');
   document.getElementById('ev-toggle-btn').classList.toggle('shifted');
+  const tb = document.getElementById('theme-btn');
+  if (tb) {{
+    if (evPanel.classList.contains('open')) {{
+      tb.style.right = 'calc(var(--evidence-w) + .6em)';
+    }} else {{
+      tb.style.right = '.6em';
+    }}
+  }}
 }}
 
 function escHtml(s) {{
