@@ -1906,14 +1906,18 @@ def generate_report() -> None:
         f'<p class="plugin-meta">Visual parent-child hierarchy &bull; '
         f'Click any node to view process details</p>'
         f'<div class="view-controls">'
-        f'<label class="vc-label"><i class="fas fa-search-plus"></i> Zoom</label>'
-        f'<input type="range" class="vc-range" id="pt-zoom" min="30" max="200" value="100" '
-        f'oninput="ptApplyView()">'
+        f'<div class="vc-group">'
+        f'<i class="fas fa-search-plus vc-icon"></i>'
+        f'<button class="vc-btn" onclick="ptZoom(-1)">-</button>'
         f'<span class="vc-val" id="pt-zoom-val">100%</span>'
-        f'<label class="vc-label"><i class="fas fa-arrows-alt"></i> Margin</label>'
-        f'<input type="range" class="vc-range" id="pt-margin" min="0" max="120" value="10" '
-        f'oninput="ptApplyView()">'
-        f'<span class="vc-val" id="pt-margin-val">10px</span>'
+        f'<button class="vc-btn" onclick="ptZoom(1)">+</button>'
+        f'</div>'
+        f'<div class="vc-group">'
+        f'<i class="fas fa-arrows-alt vc-icon"></i>'
+        f'<button class="vc-btn" onclick="ptMargin(-1)">-</button>'
+        f'<span class="vc-val" id="pt-margin-val">0px</span>'
+        f'<button class="vc-btn" onclick="ptMargin(1)">+</button>'
+        f'</div>'
         f'</div>'
         f'<div class="proc-tree-wrap" id="pt-wrap">'
         f'<div class="proc-tree" id="proc-tree-inner">{tree_nodes_html}</div></div></div>\n'
@@ -1973,14 +1977,18 @@ def generate_report() -> None:
         f'<label class="nm-filter"><input type="checkbox" id="nm-sus-only" onchange="nmFilter()"> '
         f'Suspicious only</label>'
         f'<span class="vc-sep"></span>'
-        f'<label class="vc-label"><i class="fas fa-search-plus"></i> Zoom</label>'
-        f'<input type="range" class="vc-range" id="nm-zoom" min="30" max="300" value="100" '
-        f'oninput="nmApplyView()">'
+        f'<div class="vc-group">'
+        f'<i class="fas fa-search-plus vc-icon"></i>'
+        f'<button class="vc-btn" onclick="nmZoom(-1)">-</button>'
         f'<span class="vc-val" id="nm-zoom-val">100%</span>'
-        f'<label class="vc-label"><i class="fas fa-arrows-alt"></i> Margin</label>'
-        f'<input type="range" class="vc-range" id="nm-margin" min="0" max="200" value="0" '
-        f'oninput="nmApplyView()">'
+        f'<button class="vc-btn" onclick="nmZoom(1)">+</button>'
+        f'</div>'
+        f'<div class="vc-group">'
+        f'<i class="fas fa-arrows-alt vc-icon"></i>'
+        f'<button class="vc-btn" onclick="nmMargin(-1)">-</button>'
         f'<span class="vc-val" id="nm-margin-val">0px</span>'
+        f'<button class="vc-btn" onclick="nmMargin(1)">+</button>'
+        f'</div>'
         f'</div>'
         f'<div class="netmap-container" id="netmap-container">'
         f'<svg id="netmap-svg"></svg>'
@@ -2049,27 +2057,67 @@ def generate_report() -> None:
   --evidence-w: 340px;
 }}
 body.light-theme {{
-  --bg: #f0f2f5; --bg2: #e8eaef; --surface: #ffffff;
-  --surface2: #f5f6fa; --border: #d0d3e0;
-  --text: #1a1a2e; --text-dim: #6b7094; --text-bright: #0a0a18;
-  --neon-cyan: #0088aa; --neon-magenta: #c000a0; --neon-yellow: #998800;
-  --neon-green: #00884a; --neon-red: #cc1133; --neon-orange: #cc6600;
-  --neon-blue: #2266cc; --neon-purple: #7733bb;
+  --bg: #f4f5f8; --bg2: #ecedf2; --surface: #ffffff;
+  --surface2: #f7f8fb; --border: #c8ccd8;
+  --text: #222438; --text-dim: #5c6080; --text-bright: #0a0c1a;
+  --neon-cyan: #007a99; --neon-magenta: #a80090; --neon-yellow: #7a6600;
+  --neon-green: #007a42; --neon-red: #b8102c; --neon-orange: #b85800;
+  --neon-blue: #1a55b8; --neon-purple: #6628a8;
   --glow-cyan: none; --glow-magenta: none; --glow-red: none; --glow-green: none;
 }}
 body.light-theme .sidebar {{
-  background: #1a1a2e; border-right-color: #2a2a44;
+  background: #171828; border-right-color: #252640;
 }}
 body.light-theme .main {{ background: var(--bg); }}
-body.light-theme .page-title {{ text-shadow: none; }}
-body.light-theme .stat-card {{ box-shadow: 0 2px 8px rgba(0,0,0,.08); }}
-body.light-theme .data-table th {{ background: #e0e2ea; color: #1a1a2e; }}
-body.light-theme .data-table tr:hover {{ background: rgba(0,0,0,.03); }}
-body.light-theme .output-block {{ background: #fafbfd; }}
-body.light-theme .code-line:hover {{ background: rgba(0,0,0,.04); }}
-body.light-theme .netmap-container {{ background: #ffffff; }}
-body.light-theme .proc-tree-wrap {{ background: #ffffff; }}
-body.light-theme .evidence-panel {{ background: #f5f6fa; }}
+body.light-theme .page-title {{ text-shadow: none; color: #1a1c30; }}
+body.light-theme .stat-card {{
+  box-shadow: 0 2px 10px rgba(0,0,0,.07);
+  background: #ffffff; border-color: #d4d6e2;
+}}
+body.light-theme .stat-card .num {{ text-shadow: none; }}
+body.light-theme .stat-card .stat-label {{ color: #5c6080; }}
+body.light-theme .meta-chip {{
+  background: #ffffff; border-color: #d4d6e2;
+}}
+body.light-theme .meta-chip .mc-label {{ color: #5c6080; }}
+body.light-theme .meta-chip .mc-val {{ color: #007a99; }}
+body.light-theme .data-table th {{ background: #e4e6ee; color: #1a1c30; }}
+body.light-theme .data-table td {{ color: #222438; border-color: #e0e2ea; }}
+body.light-theme .data-table tr:hover {{ background: rgba(0,100,180,.04); }}
+body.light-theme .cat-card {{
+  background: #ffffff; border-color: #d4d6e2;
+  box-shadow: 0 1px 6px rgba(0,0,0,.05);
+}}
+body.light-theme .cat-card-name {{ color: #222438; }}
+body.light-theme .output-block {{ background: #fbfbfd; border-color: #d4d6e2; }}
+body.light-theme .code-line {{ border-left-color: #d4d6e2; }}
+body.light-theme .code-line:hover {{ background: rgba(0,100,180,.05); }}
+body.light-theme .code-line .ln-text {{ color: #222438; }}
+body.light-theme .code-line .ln-num {{ color: #8088a8; }}
+body.light-theme .netmap-container {{ background: #ffffff; border-color: #d4d6e2; }}
+body.light-theme .proc-tree-wrap {{ background: #ffffff; border-color: #d4d6e2; }}
+body.light-theme .tree-label {{
+  background: #f0f1f6; border-color: #d0d3e0; color: #222438;
+}}
+body.light-theme .tree-label:hover {{ background: #e6e8f0; border-color: #007a99; }}
+body.light-theme .tree-name {{ color: #222438; }}
+body.light-theme .evidence-panel {{ background: #f0f1f5; border-color: #c8ccd8; }}
+body.light-theme .ioc-folder {{ border-color: #d4d6e2; }}
+body.light-theme .ioc-folder-head {{ background: #f7f8fb; }}
+body.light-theme .ioc-result {{ background: #ffffff; border-left-color: #a80090; }}
+body.light-theme .ioc-result-text {{ color: #222438; }}
+body.light-theme .badge {{ border-color: rgba(0,0,0,.1); }}
+body.light-theme .footer {{ background: #ecedf2; border-color: #d4d6e2; color: #5c6080; }}
+body.light-theme .vc-group {{ background: #ffffff; border-color: #d4d6e2; }}
+body.light-theme .vc-btn {{ background: #f0f1f6; border-color: #d0d3e0; color: #222438; }}
+body.light-theme .vc-btn:hover {{ border-color: #007a99; background: rgba(0,122,153,.06); }}
+body.light-theme .nm-btn {{ background: #ffffff; border-color: #d4d6e2; color: #222438; }}
+body.light-theme .nm-btn:hover {{ border-color: #007a99; }}
+body.light-theme .hits-block {{ background: #ffffff; border-color: #d4d6e2; }}
+body.light-theme .proc-section {{ border-color: #d4d6e2; }}
+body.light-theme .proc-section pre {{ background: #f7f8fb; color: #222438; }}
+body.light-theme .proc-info-grid .proc-info-item {{ background: #ffffff; border-color: #d4d6e2; }}
+body.light-theme .confirm-bar {{ background: #e8eaee; border-color: #c8ccd8; }}
 
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 html {{ scrollbar-width: thin; scrollbar-color: var(--neon-cyan) var(--bg); }}
@@ -2145,17 +2193,23 @@ body::after {{
   opacity: .5;
 }}
 .theme-toggle {{
-  position: absolute; top: .6em; right: .6em;
-  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
-  color: var(--neon-yellow); font-size: .8em; width: 28px; height: 28px;
-  border-radius: 50%; cursor: pointer; display: flex;
-  align-items: center; justify-content: center;
-  transition: background .2s, border-color .2s;
+  position: fixed; top: 1em; right: 1em; z-index: 9500;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--neon-yellow); font-size: .78em;
+  padding: .35em .8em; border-radius: 20px;
+  cursor: pointer; display: flex; align-items: center; gap: .4em;
+  transition: background .2s, border-color .2s, color .2s;
+  font-family: 'Rajdhani', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
 }}
-.theme-toggle:hover {{
-  background: rgba(255,255,255,.15); border-color: var(--neon-yellow);
+.theme-toggle:hover {{ border-color: var(--neon-yellow); }}
+.theme-toggle:active {{ transform: scale(.95); }}
+.theme-label {{ font-size: .9em; letter-spacing: .05em; }}
+body.light-theme .theme-toggle {{
+  background: #ffffff; border-color: #c0c4d8; color: #4a4e6a;
 }}
-.sidebar-brand {{ position: relative; }}
 .nav-section {{
   padding: .8em 1em .3em; font-family: 'Orbitron', monospace;
   font-size: .55em; color: var(--neon-cyan); letter-spacing: .25em;
@@ -2538,24 +2592,34 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
 
 /* view controls (shared by tree + netmap) */
 .view-controls {{
-  display: flex; gap: .5em; align-items: center; flex-wrap: wrap;
-  margin-bottom: .8em; padding: .4em .6em;
+  display: flex; gap: .35em; align-items: center; flex-wrap: wrap;
+  margin-bottom: .8em;
+}}
+.vc-group {{
+  display: inline-flex; align-items: center; gap: .2em;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 5px; padding: .15em .3em;
 }}
-.vc-label {{
-  font-family: 'Rajdhani', sans-serif; font-size: .75em;
-  color: var(--text-dim); display: flex; align-items: center; gap: .25em;
+.vc-group .vc-icon {{
+  font-size: .65em; color: var(--text-dim); margin-right: .15em;
 }}
-.vc-range {{
-  width: 100px; accent-color: var(--neon-cyan); cursor: pointer;
+.vc-btn {{
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); font-size: .72em; width: 22px; height: 22px;
+  border-radius: 3px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: border-color .15s, background .15s;
+  font-family: 'Share Tech Mono', monospace; font-weight: bold;
+  -webkit-tap-highlight-color: transparent;
 }}
+.vc-btn:hover {{ border-color: var(--neon-cyan); background: rgba(0,240,255,.06); }}
+.vc-btn:active {{ transform: scale(.9); }}
 .vc-val {{
-  font-family: 'Share Tech Mono', monospace; font-size: .7em;
-  color: var(--neon-cyan); min-width: 3.5em;
+  font-family: 'Share Tech Mono', monospace; font-size: .65em;
+  color: var(--neon-cyan); min-width: 2.5em; text-align: center;
 }}
 .vc-sep {{
-  width: 1px; height: 1.2em; background: var(--border); margin: 0 .3em;
+  width: 1px; height: 1.2em; background: var(--border); margin: 0 .2em;
 }}
 
 /* proc tree wrapper */
@@ -2867,9 +2931,6 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
     <h1>MEMHUNTER</h1>
     <div class="sub">Memory Forensics</div>
     <div class="author">by FALCON</div>
-    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
-      <i class="fas fa-sun" id="theme-icon"></i>
-    </button>
   </div>
   <div class="nav-section">Navigation</div>
   {sidebar_items}
@@ -2907,6 +2968,12 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
     </div>
   </div>
 </div>
+
+<!-- THEME TOGGLE -->
+<button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark theme">
+  <i class="fas fa-sun" id="theme-icon"></i>
+  <span class="theme-label" id="theme-label">Light</span>
+</button>
 
 <!-- MAIN -->
 <div class="main" id="main-content">
@@ -3363,26 +3430,36 @@ function renderEvidence() {{
 // ========== Theme Toggle ==========
 function toggleTheme() {{
   document.body.classList.toggle('light-theme');
-  const icon = document.getElementById('theme-icon');
-  if (document.body.classList.contains('light-theme')) {{
-    icon.className = 'fas fa-moon';
-  }} else {{
-    icon.className = 'fas fa-sun';
-  }}
+  const isLight = document.body.classList.contains('light-theme');
+  document.getElementById('theme-icon').className = isLight ? 'fas fa-moon' : 'fas fa-sun';
+  document.getElementById('theme-label').textContent = isLight ? 'Dark' : 'Light';
 }}
 
 // ========== Process Tree Zoom/Margin ==========
-function ptApplyView() {{
-  const zoom = document.getElementById('pt-zoom').value;
-  const margin = document.getElementById('pt-margin').value;
-  document.getElementById('pt-zoom-val').textContent = zoom + '%';
-  document.getElementById('pt-margin-val').textContent = margin + 'px';
+let ptZoomLevel = 100;
+let ptMarginLevel = 0;
+
+function ptZoom(dir) {{
+  ptZoomLevel = Math.max(30, Math.min(200, ptZoomLevel + dir * 10));
+  document.getElementById('pt-zoom-val').textContent = ptZoomLevel + '%';
+  ptApply();
+}}
+function ptMargin(dir) {{
+  ptMarginLevel = Math.max(0, Math.min(60, ptMarginLevel + dir * 5));
+  document.getElementById('pt-margin-val').textContent = ptMarginLevel + 'px';
+  ptApply();
+}}
+function ptApply() {{
   const inner = document.getElementById('proc-tree-inner');
-  if (inner) {{
-    inner.style.transform = 'scale(' + (zoom / 100) + ')';
-    inner.style.transformOrigin = 'top left';
-    inner.style.padding = margin + 'px';
-  }}
+  if (!inner) return;
+  inner.style.transform = 'scale(' + (ptZoomLevel / 100) + ')';
+  inner.style.transformOrigin = 'top left';
+  inner.querySelectorAll('.tree-node').forEach(n => {{
+    n.style.marginBottom = ptMarginLevel + 'px';
+  }});
+  inner.querySelectorAll('.tree-label').forEach(l => {{
+    l.style.marginBottom = (ptMarginLevel * 0.4) + 'px';
+  }});
 }}
 
 // ========== Network Map ==========
@@ -3585,8 +3662,10 @@ function ptApplyView() {{
   }}
 
   // Force simulation
+  let nmRepulsion = 2500;
+
   function simulate() {{
-    const repulsion = 2500;
+    const repulsion = nmRepulsion;
     const attraction = 0.005;
     const damping = 0.85;
     const centerPull = 0.01;
@@ -3718,20 +3797,28 @@ function ptApplyView() {{
     startSim();
   }};
 
-  window.nmApplyView = function() {{
-    const zoom = document.getElementById('nm-zoom').value;
-    const margin = document.getElementById('nm-margin').value;
-    document.getElementById('nm-zoom-val').textContent = zoom + '%';
-    document.getElementById('nm-margin-val').textContent = margin + 'px';
-    const scale = 100 / zoom;
-    const m = parseInt(margin);
+  let nmZoomLevel = 100;
+  let nmMarginLevel = 0;
+
+  window.nmZoom = function(dir) {{
+    nmZoomLevel = Math.max(30, Math.min(300, nmZoomLevel + dir * 15));
+    document.getElementById('nm-zoom-val').textContent = nmZoomLevel + '%';
+    const scale = 100 / nmZoomLevel;
     const w = container.clientWidth;
     const h = container.clientHeight;
-    const vbW = w * scale + m * 2;
-    const vbH = h * scale + m * 2;
-    const vbX = -(m + (w * scale - w) / 2);
-    const vbY = -(m + (h * scale - h) / 2);
+    const vbW = w * scale;
+    const vbH = h * scale;
+    const vbX = (w - vbW) / 2;
+    const vbY = (h - vbH) / 2;
     svg.setAttribute('viewBox', vbX + ' ' + vbY + ' ' + vbW + ' ' + vbH);
+  }};
+
+  window.nmMargin = function(dir) {{
+    nmMarginLevel = Math.max(0, Math.min(10, nmMarginLevel + dir));
+    const spacing = 1500 + nmMarginLevel * 500;
+    nmRepulsion = spacing;
+    document.getElementById('nm-margin-val').textContent = nmMarginLevel;
+    startSim();
   }};
 
   // Init on page show
