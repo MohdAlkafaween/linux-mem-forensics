@@ -2057,67 +2057,192 @@ def generate_report() -> None:
   --evidence-w: 340px;
 }}
 body.light-theme {{
-  --bg: #f4f5f8; --bg2: #ecedf2; --surface: #ffffff;
-  --surface2: #f7f8fb; --border: #c8ccd8;
+  --bg: #eef0f4; --bg2: #e4e6ec; --surface: #ffffff;
+  --surface2: #f4f5f9; --border: #c0c4d4;
   --text: #222438; --text-dim: #5c6080; --text-bright: #0a0c1a;
-  --neon-cyan: #007a99; --neon-magenta: #a80090; --neon-yellow: #7a6600;
-  --neon-green: #007a42; --neon-red: #b8102c; --neon-orange: #b85800;
+  --neon-cyan: #0077aa; --neon-magenta: #a8008c; --neon-yellow: #806e00;
+  --neon-green: #007844; --neon-red: #b81030; --neon-orange: #b85500;
   --neon-blue: #1a55b8; --neon-purple: #6628a8;
   --glow-cyan: none; --glow-magenta: none; --glow-red: none; --glow-green: none;
 }}
-body.light-theme .sidebar {{
-  background: #171828; border-right-color: #252640;
-}}
+
+/* -- light: layout shells -- */
+body.light-theme .sidebar {{ background: #1a1c30; border-right-color: #2a2c44; }}
 body.light-theme .main {{ background: var(--bg); }}
+body.light-theme .footer {{ background: #dfe1e8; border-color: var(--border); color: #5c6080; }}
+
+/* -- light: page titles / headings -- */
 body.light-theme .page-title {{ text-shadow: none; color: #1a1c30; }}
+body.light-theme h3 {{ color: #222438; }}
+
+/* -- light: dashboard stat cards -- */
 body.light-theme .stat-card {{
-  box-shadow: 0 2px 10px rgba(0,0,0,.07);
-  background: #ffffff; border-color: #d4d6e2;
+  background: #ffffff; border-color: #ccd0dc;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
 }}
+body.light-theme .stat-card::before {{ box-shadow: none; }}
 body.light-theme .stat-card .num {{ text-shadow: none; }}
 body.light-theme .stat-card .stat-label {{ color: #5c6080; }}
+
+/* -- light: meta bar / chips -- */
 body.light-theme .meta-chip {{
-  background: #ffffff; border-color: #d4d6e2;
+  background: #ffffff; border-color: #ccd0dc;
 }}
+body.light-theme .meta-chip::before {{ opacity: .6; }}
 body.light-theme .meta-chip .mc-label {{ color: #5c6080; }}
-body.light-theme .meta-chip .mc-val {{ color: #007a99; }}
-body.light-theme .data-table th {{ background: #e4e6ee; color: #1a1c30; }}
+body.light-theme .meta-chip .mc-val {{ color: var(--neon-cyan); }}
+
+/* -- light: data tables -- */
+body.light-theme .data-table {{ border-color: #ccd0dc; }}
+body.light-theme .data-table th {{ background: #dee0e8; color: #1a1c30; border-color: #ccd0dc; }}
 body.light-theme .data-table td {{ color: #222438; border-color: #e0e2ea; }}
-body.light-theme .data-table tr:hover {{ background: rgba(0,100,180,.04); }}
+body.light-theme .data-table tbody tr {{ background: #ffffff; }}
+body.light-theme .data-table tbody tr:nth-child(even) {{ background: #f6f7fa; }}
+body.light-theme .data-table tbody tr:hover {{ background: #eaecf2; }}
+body.light-theme tr.proc-row-danger {{ background: rgba(184,16,48,.06) !important; }}
+body.light-theme tr.sev-flag {{ background: rgba(0,120,68,.06); }}
+
+/* -- light: category cards -- */
 body.light-theme .cat-card {{
-  background: #ffffff; border-color: #d4d6e2;
-  box-shadow: 0 1px 6px rgba(0,0,0,.05);
+  background: #ffffff; border-color: #ccd0dc;
+  box-shadow: 0 1px 5px rgba(0,0,0,.05);
 }}
+body.light-theme .cat-card:hover {{ border-color: var(--neon-cyan); }}
 body.light-theme .cat-card-name {{ color: #222438; }}
-body.light-theme .output-block {{ background: #fbfbfd; border-color: #d4d6e2; }}
-body.light-theme .code-line {{ border-left-color: #d4d6e2; }}
-body.light-theme .code-line:hover {{ background: rgba(0,100,180,.05); }}
-body.light-theme .code-line .ln-text {{ color: #222438; }}
-body.light-theme .code-line .ln-num {{ color: #8088a8; }}
-body.light-theme .netmap-container {{ background: #ffffff; border-color: #d4d6e2; }}
-body.light-theme .proc-tree-wrap {{ background: #ffffff; border-color: #d4d6e2; }}
-body.light-theme .tree-label {{
-  background: #f0f1f6; border-color: #d0d3e0; color: #222438;
+body.light-theme .cat-card-meta {{ color: #5c6080; }}
+body.light-theme .cat-card-head {{ color: #222438; }}
+
+/* -- light: badges -- */
+body.light-theme .badge {{
+  border-color: rgba(0,0,0,.08);
 }}
-body.light-theme .tree-label:hover {{ background: #e6e8f0; border-color: #007a99; }}
+body.light-theme .badge.sev-flag {{ background: rgba(0,120,68,.12); color: #007844; }}
+body.light-theme .badge.sev-rootkit {{ background: rgba(184,16,48,.1); color: #b81030; }}
+body.light-theme .badge.sev-suspect {{ background: rgba(184,85,0,.1); color: #b85500; }}
+body.light-theme .badge.sev-info {{ background: rgba(26,85,184,.1); color: #1a55b8; }}
+body.light-theme .badge-sm {{ border-color: rgba(0,0,0,.08); }}
+
+/* -- light: output / code blocks -- */
+body.light-theme .output-block {{ background: #f7f8fb; border-color: #ccd0dc; }}
+body.light-theme .code-lines {{ background: #f9fafb; }}
+body.light-theme .code-line {{ border-left-color: #d8dae2; }}
+body.light-theme .code-line:hover {{ background: #eef0f6; }}
+body.light-theme .code-line .ln-text {{ color: #222438; }}
+body.light-theme .code-line .ln-num {{ color: #8890a8; }}
+body.light-theme .code-line.selected {{ background: rgba(0,120,68,.08); border-left-color: #007844; }}
+body.light-theme .code-line.collected {{ background: rgba(168,0,140,.06); border-left-color: #a8008c; }}
+body.light-theme .plugin-meta {{ color: #5c6080; }}
+body.light-theme .collect-hint {{ color: #5c6080; }}
+body.light-theme .truncated {{ color: #5c6080; }}
+
+/* -- light: confirm bar -- */
+body.light-theme .confirm-bar {{
+  background: #e8eaee; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .cb-confirm {{ background: rgba(0,120,68,.12); border-color: #007844; color: #007844; }}
+body.light-theme .cb-cancel {{ background: rgba(184,16,48,.08); border-color: #b81030; color: #b81030; }}
+
+/* -- light: process detail pages -- */
+body.light-theme .proc-info-grid .proc-info-item {{
+  background: #ffffff; border-color: #ccd0dc;
+}}
+body.light-theme .proc-info-item .lbl {{ color: #5c6080; }}
+body.light-theme .proc-info-item .val {{ color: #222438; }}
+body.light-theme .proc-section {{ border-color: #ccd0dc; background: #ffffff; }}
+body.light-theme .proc-section h3 {{ color: #222438; }}
+body.light-theme .proc-section h3 i {{ color: var(--neon-cyan); }}
+body.light-theme .proc-section pre {{ background: #f4f5f8; color: #222438; }}
+body.light-theme .proc-danger {{ border-color: rgba(184,16,48,.2); }}
+body.light-theme .proc-danger h3 {{ color: #b81030; }}
+body.light-theme .proc-danger h3 i {{ color: #b81030; }}
+body.light-theme .pid-tag {{ color: var(--neon-cyan); }}
+
+/* -- light: process tree -- */
+body.light-theme .proc-tree-wrap {{ background: #f9fafb; border-color: #ccd0dc; }}
+body.light-theme .tree-node {{ border-left-color: #c0c4d4; }}
+body.light-theme .tree-node::before {{ border-top-color: #c0c4d4; }}
+body.light-theme .tree-node:last-child::before {{ border-left-color: #c0c4d4; }}
+body.light-theme .tree-label {{
+  background: #ffffff; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .tree-label:hover {{ background: #eef0f6; border-color: var(--neon-cyan); }}
 body.light-theme .tree-name {{ color: #222438; }}
-body.light-theme .evidence-panel {{ background: #f0f1f5; border-color: #c8ccd8; }}
-body.light-theme .ioc-folder {{ border-color: #d4d6e2; }}
-body.light-theme .ioc-folder-head {{ background: #f7f8fb; }}
-body.light-theme .ioc-result {{ background: #ffffff; border-left-color: #a80090; }}
+body.light-theme .tree-pid {{ color: var(--neon-magenta); }}
+body.light-theme .tree-danger > .tree-label {{
+  background: #fff5f6; border-color: rgba(184,16,48,.3);
+}}
+body.light-theme .tree-net > .tree-label {{
+  background: #f4fbf7; border-color: rgba(0,120,68,.3);
+}}
+
+/* -- light: network map -- */
+body.light-theme .netmap-container {{ background: #f9fafb; border-color: #ccd0dc; }}
+body.light-theme .netmap-legend {{ color: #5c6080; }}
+body.light-theme .netmap-tooltip {{
+  background: #ffffff; border-color: var(--neon-cyan); color: #222438;
+  box-shadow: 0 2px 12px rgba(0,0,0,.1);
+}}
+body.light-theme .nm-btn {{
+  background: #ffffff; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .nm-btn:hover {{ border-color: var(--neon-cyan); }}
+body.light-theme .nm-filter {{ color: #5c6080; }}
+
+/* -- light: evidence panel -- */
+body.light-theme .evidence-panel {{
+  background: #f2f3f7; border-color: #c0c4d4;
+}}
+body.light-theme .ev-header {{ color: #222438; }}
+body.light-theme .ev-btn {{
+  background: #ffffff; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .ev-btn:hover {{ border-color: var(--neon-cyan); }}
+body.light-theme .evidence-toggle {{
+  background: #ffffff; border-color: #ccd0dc;
+}}
+body.light-theme .ioc-folder {{ border-color: #ccd0dc; }}
+body.light-theme .ioc-folder-head {{ background: #f7f8fb; color: #222438; }}
+body.light-theme .ioc-folder-title {{ color: #222438; }}
+body.light-theme .ioc-folder-count {{ color: var(--neon-cyan); }}
+body.light-theme .ioc-folder-note input {{
+  background: #ffffff; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .ioc-folder-body {{ background: #f9fafb; }}
+body.light-theme .ioc-result {{ background: #ffffff; border-left-color: var(--neon-magenta); }}
+body.light-theme .ioc-result-head {{ background: rgba(168,0,140,.04); }}
 body.light-theme .ioc-result-text {{ color: #222438; }}
-body.light-theme .badge {{ border-color: rgba(0,0,0,.1); }}
-body.light-theme .footer {{ background: #ecedf2; border-color: #d4d6e2; color: #5c6080; }}
-body.light-theme .vc-group {{ background: #ffffff; border-color: #d4d6e2; }}
-body.light-theme .vc-btn {{ background: #f0f1f6; border-color: #d0d3e0; color: #222438; }}
-body.light-theme .vc-btn:hover {{ border-color: #007a99; background: rgba(0,122,153,.06); }}
-body.light-theme .nm-btn {{ background: #ffffff; border-color: #d4d6e2; color: #222438; }}
-body.light-theme .nm-btn:hover {{ border-color: #007a99; }}
-body.light-theme .hits-block {{ background: #ffffff; border-color: #d4d6e2; }}
-body.light-theme .proc-section {{ border-color: #d4d6e2; }}
-body.light-theme .proc-section pre {{ background: #f7f8fb; color: #222438; }}
-body.light-theme .proc-info-grid .proc-info-item {{ background: #ffffff; border-color: #d4d6e2; }}
-body.light-theme .confirm-bar {{ background: #e8eaee; border-color: #c8ccd8; }}
+body.light-theme .ioc-result-text:hover {{ background: rgba(0,120,68,.05); }}
+body.light-theme .ioc-result-plugin {{ color: var(--neon-cyan); }}
+body.light-theme .ioc-plugin-tag {{ color: var(--neon-cyan); background: rgba(0,119,170,.08); }}
+body.light-theme .active-ioc-banner {{ background: rgba(0,120,68,.06); color: #007844; }}
+body.light-theme .ev-empty {{ color: #5c6080; }}
+
+/* -- light: view controls -- */
+body.light-theme .view-controls {{ background: transparent; }}
+body.light-theme .vc-group {{ background: #ffffff; border-color: #ccd0dc; }}
+body.light-theme .vc-btn {{ background: #eef0f4; border-color: #ccd0dc; color: #222438; }}
+body.light-theme .vc-btn:hover {{ border-color: var(--neon-cyan); background: #e4e8f0; }}
+body.light-theme .vc-val {{ color: var(--neon-cyan); }}
+body.light-theme .vc-icon {{ color: #5c6080; }}
+
+/* -- light: hits block -- */
+body.light-theme .hits-block {{ background: #ffffff; border-color: #ccd0dc; }}
+body.light-theme .hits-block h2 {{ color: #222438; }}
+
+/* -- light: search bar -- */
+body.light-theme .proc-search {{
+  background: #ffffff; border-color: #ccd0dc; color: #222438;
+}}
+body.light-theme .proc-search::placeholder {{ color: #8890a8; }}
+
+/* -- light: nav items (sidebar stays dark, but active highlights) -- */
+body.light-theme .nav-item.active {{ background: rgba(0,240,255,.12); }}
+
+/* -- light: hide animated background overlay -- */
+body.light-theme::before {{ display: none; }}
+
+/* -- light: scrollbar -- */
+body.light-theme {{ scrollbar-color: #b0b4c4 #eef0f4; }}
 
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 html {{ scrollbar-width: thin; scrollbar-color: var(--neon-cyan) var(--bg); }}
@@ -2415,7 +2540,7 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
   border-radius: 8px; overflow: hidden;
 }}
 .code-lines {{
-  background: #04050a; padding: .4em 0;
+  background: var(--bg); padding: .4em 0;
   max-height: 80vh; overflow-y: auto; overflow-x: auto;
   font-family: 'Share Tech Mono', monospace;
   font-size: .78em; line-height: 1.55;
@@ -2534,7 +2659,7 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
 }}
 .proc-section h3 i {{ margin-right: .4em; color: var(--neon-cyan); }}
 .proc-section pre {{
-  background: #04050a; padding: 1em;
+  background: var(--bg); padding: 1em;
   font-family: 'Share Tech Mono', monospace;
   font-size: .76em; line-height: 1.5;
   overflow-x: auto; white-space: pre-wrap; word-break: break-word;
