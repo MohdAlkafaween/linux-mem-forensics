@@ -2092,7 +2092,10 @@ body.light-theme .main {{ background: var(--bg); }}
 body.light-theme .footer {{ background: #dfe1e8; border-color: var(--border); color: #5c6080; }}
 
 /* -- light: page titles / headings -- */
-body.light-theme .page-title {{ text-shadow: none; color: #1a1c30; }}
+body.light-theme .page-title {{
+  text-shadow: none; color: #1a1c30;
+  -webkit-text-fill-color: #1a1c30; background: none;
+}}
 body.light-theme h3 {{ color: #222438; }}
 
 /* -- light: dashboard stat cards -- */
@@ -2258,8 +2261,33 @@ body.light-theme .proc-search::placeholder {{ color: #8890a8; }}
 /* -- light: nav items (sidebar stays dark, but active highlights) -- */
 body.light-theme .nav-item.active {{ background: rgba(0,240,255,.12); }}
 
-/* -- light: hide animated background overlay -- */
+/* -- light: hide animated background overlays -- */
 body.light-theme::before {{ display: none; }}
+body.light-theme::after {{ display: none; }}
+
+/* -- light: text elements with hardcoded dark-mode colors -- */
+body.light-theme .ln-text {{ color: #222438; }}
+body.light-theme .danger-val {{ color: #b81030 !important; text-shadow: none !important; }}
+body.light-theme .pid-tag {{ background: rgba(0,119,170,.08); border-color: rgba(0,119,170,.2); }}
+body.light-theme .truncated {{ background: rgba(184,85,0,.08); }}
+body.light-theme .hits-block h2 {{ color: #7a0068; text-shadow: none; }}
+body.light-theme .code-line:hover {{ background: rgba(0,119,170,.06); }}
+body.light-theme .code-line.selected {{ background: rgba(0,119,170,.1); }}
+body.light-theme .code-line.collected {{ background: rgba(168,0,140,.06); }}
+body.light-theme .proc-row-danger {{ background: rgba(184,16,48,.06) !important; }}
+body.light-theme .proc-row-danger:hover {{ background: rgba(184,16,48,.1) !important; }}
+body.light-theme .cat-card:hover {{ box-shadow: 0 4px 16px rgba(0,0,0,.1); }}
+body.light-theme .cat-card::after {{ background: none; }}
+body.light-theme .evidence-toggle {{ box-shadow: 0 2px 8px rgba(0,0,0,.1); }}
+body.light-theme .evidence-panel {{ box-shadow: -3px 0 15px rgba(0,0,0,.08); }}
+body.light-theme .proc-search:focus {{ box-shadow: 0 0 0 2px rgba(0,119,170,.15); }}
+body.light-theme .proc-danger {{ border-color: rgba(184,16,48,.25); }}
+body.light-theme .tree-label:hover {{ background: #eef0f6; }}
+body.light-theme .tree-danger > .tree-label {{ background: #fff5f6; border-color: rgba(184,16,48,.3); }}
+body.light-theme .tree-danger > .tree-label:hover {{ background: #ffecee; border-color: #b81030; }}
+body.light-theme .tree-net > .tree-label {{ background: #f0faf5; border-color: rgba(0,120,68,.25); }}
+body.light-theme .nm-line-normal {{ background: rgba(0,0,0,.2); }}
+body.light-theme .netmap-container {{ background: #f4f5f9; }}
 
 /* -- light: scrollbar -- */
 body.light-theme {{ scrollbar-color: #b0b4c4 #eef0f4; }}
