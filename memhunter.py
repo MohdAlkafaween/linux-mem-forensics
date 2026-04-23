@@ -2286,7 +2286,11 @@ body.light-theme .tree-label:hover {{ background: #eef0f6; }}
 body.light-theme .tree-danger > .tree-label {{ background: #fff5f6; border-color: rgba(184,16,48,.3); }}
 body.light-theme .tree-danger > .tree-label:hover {{ background: #ffecee; border-color: #b81030; }}
 body.light-theme .tree-net > .tree-label {{ background: #f0faf5; border-color: rgba(0,120,68,.25); }}
-body.light-theme .nm-line-normal {{ background: rgba(0,0,0,.2); }}
+body.light-theme .nm-dot-local {{ background: #007844; }}
+body.light-theme .nm-dot-remote {{ background: #a8008c; }}
+body.light-theme .nm-dot-proc {{ background: #0077aa; }}
+body.light-theme .nm-line-normal {{ background: rgba(0,0,0,.25); }}
+body.light-theme .nm-line-sus {{ background: #b81030; }}
 body.light-theme .netmap-container {{ background: #f4f5f9; }}
 
 /* -- light: scrollbar -- */
@@ -3675,6 +3679,7 @@ function toggleTheme() {{
   const isLight = document.body.classList.contains('light-theme');
   document.getElementById('theme-icon').className = isLight ? 'fas fa-moon' : 'fas fa-sun';
   document.getElementById('theme-label').textContent = isLight ? 'Dark' : 'Light';
+  if (typeof _nmRender === 'function') _nmRender();
 }}
 
 // ========== Process Tree Zoom/Margin ==========
@@ -3766,10 +3771,33 @@ function ptApply() {{
 
   const ns = 'http://www.w3.org/2000/svg';
 
+  function isLightTheme() {{
+    return document.body.classList.contains('light-theme');
+  }}
+
   function typeColor(type) {{
-    if (type === 'local') return '#00ff88';
-    if (type === 'remote') return '#ff00e5';
-    return '#00e5ff';
+    const lt = isLightTheme();
+    if (type === 'local') return lt ? '#007844' : '#00ff88';
+    if (type === 'remote') return lt ? '#a8008c' : '#ff00e5';
+    return lt ? '#0077aa' : '#00e5ff';
+  }}
+
+  function edgeColor(suspicious) {{
+    if (suspicious) return isLightTheme() ? '#b81030' : '#ff2244';
+    return isLightTheme() ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.2)';
+  }}
+
+  function edgeLabelColor(suspicious) {{
+    if (suspicious) return isLightTheme() ? '#b81030' : '#ff4466';
+    return isLightTheme() ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.35)';
+  }}
+
+  function labelColor() {{
+    return isLightTheme() ? '#222438' : '#fff';
+  }}
+
+  function arrowColor() {{
+    return isLightTheme() ? 'rgba(0,0,0,.35)' : 'rgba(255,255,255,.3)';
   }}
 
   function typeRadius(n) {{
@@ -3801,14 +3829,14 @@ function ptApply() {{
     marker.setAttribute('orient', 'auto');
     const path = document.createElementNS(ns, 'path');
     path.setAttribute('d', 'M0,0 L10,3 L0,6 Z');
-    path.setAttribute('fill', 'rgba(255,255,255,.3)');
+    path.setAttribute('fill', arrowColor());
     marker.appendChild(path);
     defs.appendChild(marker);
     svg.appendChild(defs);
 
     visibleEdges.forEach((e, i) => {{
       const line = document.createElementNS(ns, 'line');
-      line.setAttribute('stroke', e.suspicious ? '#ff2244' : 'rgba(255,255,255,.2)');
+      line.setAttribute('stroke', edgeColor(e.suspicious));
       line.setAttribute('stroke-width', e.suspicious ? '2' : '1');
       line.setAttribute('marker-end', 'url(#arrow)');
       line.dataset.idx = i;
@@ -3819,7 +3847,7 @@ function ptApply() {{
 
       const lbl = document.createElementNS(ns, 'text');
       lbl.textContent = e.label;
-      lbl.setAttribute('fill', e.suspicious ? '#ff4466' : 'rgba(255,255,255,.35)');
+      lbl.setAttribute('fill', edgeLabelColor(e.suspicious));
       lbl.setAttribute('font-size', '9');
       lbl.setAttribute('font-family', 'Share Tech Mono, monospace');
       lbl.setAttribute('text-anchor', 'middle');
@@ -3851,7 +3879,7 @@ function ptApply() {{
 
       const lbl = document.createElementNS(ns, 'text');
       lbl.textContent = n.label;
-      lbl.setAttribute('fill', '#fff');
+      lbl.setAttribute('fill', labelColor());
       lbl.setAttribute('font-size', '10');
       lbl.setAttribute('font-family', 'Share Tech Mono, monospace');
       lbl.setAttribute('text-anchor', 'middle');
@@ -3878,6 +3906,8 @@ function ptApply() {{
 
     updatePositions();
   }}
+
+  window._nmRender = function() {{ render(); updatePositions(); }};
 
   function updatePositions() {{
     edgeEls.forEach(({{ el, edge }}) => {{
@@ -3986,7 +4016,7 @@ function ptApply() {{
     html += '<span style="color:' + typeColor(n.type) + '">' + n.type.toUpperCase() + '</span><br>';
     html += conns.length + ' connection' + (conns.length !== 1 ? 's' : '');
     const susCount = conns.filter(e => e.suspicious).length;
-    if (susCount > 0) html += '<br><span style="color:#ff2244">' + susCount + ' suspicious</span>';
+    if (susCount > 0) html += '<br><span style="color:' + (isLightTheme() ? '#b81030' : '#ff2244') + '">' + susCount + ' suspicious</span>';
     tooltip.innerHTML = html;
     tooltip.classList.add('visible');
     positionTip(ev);
@@ -3998,7 +4028,7 @@ function ptApply() {{
     html += c.proto + ' ' + c.localAddr + ':' + c.localPort +
       ' → ' + c.foreignAddr + ':' + c.foreignPort + '<br>';
     html += 'State: ' + c.state;
-    if (e.suspicious) html += '<br><span style="color:#ff2244">⚠ SUSPICIOUS PORT</span>';
+    if (e.suspicious) html += '<br><span style="color:' + (isLightTheme() ? '#b81030' : '#ff2244') + '">⚠ SUSPICIOUS PORT</span>';
     tooltip.innerHTML = html;
     tooltip.classList.add('visible');
     positionTip(ev);
