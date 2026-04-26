@@ -40,7 +40,7 @@
  *  sudo rmmod memdump
  *
  * License : GPL-2.0 (required for access to kernel symbols)
- * Author  : DFIR Tooling Project
+ * Author  : Mohd Alkafaween
  */
 
 #include <linux/module.h>       /* MODULE_*, module_init, module_exit       */
@@ -341,6 +341,6 @@ module_init(memdump_init);
 module_exit(memdump_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("DFIR Tooling Project");
+MODULE_AUTHOR("Mohd Alkafaween");
 MODULE_DESCRIPTION("Physical memory acquisition module for forensic imaging");
 MODULE_VERSION("1.0.0");

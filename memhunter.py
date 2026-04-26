@@ -20,12 +20,15 @@ import concurrent.futures
 import json
 import os
 import re
+import signal
 import shlex
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+signal.signal(signal.SIGINT, lambda *_: (print("\n[*] Interrupted. Goodbye."), sys.exit(130)))
 
 # ---------------------------------------------------------------------------
 # Rich is the only non-stdlib dependency (pre-installed on Kali).
@@ -52,7 +55,7 @@ DUMP_PATH   = None          # set after argument parsing / menu selection
 OUT_DIR     = None          # timestamped output directory
 VOL_CMD     = None          # path to vol / vol3 / python3 vol.py
 OS_TYPE     = "linux"       # "linux" or "windows" — chosen at startup
-FLAG_FORMAT = ""            # user-supplied string-search regex (e.g. password|secret)
+SEARCH_PATTERN = ""         # user-supplied string-search regex (e.g. password|secret)
 HITS_JSON   = []            # accumulated structured hits for --json export
 
 
@@ -180,25 +183,25 @@ def ask(prompt: str, default: str = "") -> str:
     return val if val else default
 
 
-DEFAULT_FLAG_PATTERN = r"(?:flag|HTB|picoCTF|THM|DUCTF|CTF|pwn|sun|KCTF)\{[^}]{1,200}\}"
+DEFAULT_SEARCH_PATTERN = r"(?i)(?:password|secret|token|api[_\-]?key|private.key|credential)\s*[=:]\s*\S+"
 
 
-def _ensure_flag_format() -> str:
-    """Return the flag regex to use — fully optional, never prompts.
+def _ensure_search_pattern() -> str:
+    """Return the search regex — fully optional, never prompts.
 
-    If the user has set FLAG_FORMAT via the [f] menu, that's used. Otherwise
-    the default multi-CTF pattern is returned silently so flag hunts always
-    work without requiring the user to configure anything.
+    If the user has set SEARCH_PATTERN via the [f] menu, that's used. Otherwise
+    the default pattern is returned silently so string hunts always work
+    without requiring the user to configure anything.
     """
-    return FLAG_FORMAT or DEFAULT_FLAG_PATTERN
+    return SEARCH_PATTERN or DEFAULT_SEARCH_PATTERN
 
 
-def _prompt_flag_format() -> str:
+def _prompt_search_pattern() -> str:
     """Interactively ask the user for a custom string-search regex ([f] menu).
 
     Empty input clears any override so the default is used.
     """
-    global FLAG_FORMAT
+    global SEARCH_PATTERN
     cprint("\n[*] Enter a string search pattern (Python/grep regex).", "yellow")
     cprint("    Optional — press Enter to clear and use the default pattern.", "dim")
     cprint("    Examples:", "dim")
@@ -207,17 +210,17 @@ def _prompt_flag_format() -> str:
     while True:
         pat = ask("Search regex (blank = default)").strip()
         if not pat:
-            FLAG_FORMAT = ""
-            cprint(f"[+] Cleared — using default pattern: {DEFAULT_FLAG_PATTERN}", "green")
-            return DEFAULT_FLAG_PATTERN
+            SEARCH_PATTERN = ""
+            cprint(f"[+] Cleared — using default pattern: {DEFAULT_SEARCH_PATTERN}", "green")
+            return DEFAULT_SEARCH_PATTERN
         try:
             re.compile(pat)
         except re.error as e:
             cprint(f"[!] Invalid regex: {e}", "red")
             continue
-        FLAG_FORMAT = pat
+        SEARCH_PATTERN = pat
         cprint(f"[+] String search set to: {pat}", "green")
-        return FLAG_FORMAT
+        return SEARCH_PATTERN
 
 
 def _select_os() -> None:
@@ -548,7 +551,7 @@ CHEATSHEET_VOL3 = """
     linux.dump_map  --pid <PID>  → dump writable regions
     linux.malfind                → find injected / unsigned pages
 
-## Environment variables  ← CTF goldmine
+## Environment variables  ← high-value target
     linux.envars                 → all vars for all processes
     linux.envars --pid <PID>     → vars for one process
 
@@ -581,8 +584,8 @@ CHEATSHEET_VOL3 = """
     Place .zip in: volatility3/volatility3/symbols/
 """
 
-CHEATSHEET_CTF = """
-# CTF Memory Forensics — Workflow & Hunting Guide
+CHEATSHEET_WORKFLOW = """
+# Memory Forensics — Workflow & Hunting Guide
 
 ## Step 1 — Orient yourself (always first)
     linux.banners        → kernel version string
@@ -590,19 +593,19 @@ CHEATSHEET_CTF = """
     linux.lsmod          → loaded kernel modules
     linux.netstat        → open connections
 
-## Step 2 — Flag hunting locations
+## Step 2 — String hunting locations
 
-### a) Environment variables  ← most common CTF path
+### a) Environment variables  ← most common path
     vol linux.envars
-    # look for:  FLAG=, CTF_FLAG=, SECRET=, KEY=, TOKEN=
+    # look for:  SECRET=, KEY=, TOKEN=, PASSWORD=, API_KEY=
 
 ### b) Bash history
     vol linux.bash
     # commands typed by users — may reveal flag location or credentials
 
 ### c) Raw dump strings
-    strings dump.raw | grep -iP "flag\\{[^}]+\\}"
-    strings -el dump.raw | grep -iP "flag\\{[^}]+\\}"    # Unicode
+    strings dump.raw | grep -iP "password|secret|token"
+    strings -el dump.raw | grep -iP "password|secret|token"    # Unicode
 
 ### d) Files on disk (VFS cache)
     vol linux.find_file --find /root
@@ -614,7 +617,7 @@ CHEATSHEET_CTF = """
 ### e) Process memory of interesting PIDs
     vol linux.proc.Maps --pid <PID>
     vol linux.dump_map  --pid <PID>
-    strings pid_dump.dmp | grep -i flag
+    strings pid_dump.dmp | grep -i secret
 
 ### f) Network (exfiltration / C2 path)
     vol linux.netstat
@@ -636,22 +639,22 @@ CHEATSHEET_CTF = """
     □ Process in netstat/files but NOT in pslist → process hiding
 
 ## Step 5 — String grep patterns (copy-paste ready)
-    grep -aP  'flag\\{[^}]+\\}'     strings.txt   # generic
-    grep -aP  'HTB\\{[^}]+\\}'      strings.txt   # HackTheBox
-    grep -aP  'picoCTF\\{[^}]+\\}'  strings.txt   # picoCTF
-    grep -aP  'THM\\{[^}]+\\}'      strings.txt   # TryHackMe
-    grep -aP  'DUCTF\\{[^}]+\\}'    strings.txt   # Down Under CTF
-    grep -aP  '[A-Za-z0-9+/]{40,}={0,2}' strings.txt  # base64
-    grep -aP  'password\\s*[=:]\\s*\\S+' strings.txt   # passwords
+    grep -aiP 'password\\s*[=:]\\s*\\S+' strings.txt   # passwords
+    grep -aiP 'secret\\s*[=:]\\s*\\S+'   strings.txt   # secrets
+    grep -aiP 'token\\s*[=:]\\s*\\S+'    strings.txt   # tokens
+    grep -aiP 'api[_-]?key\\s*[=:]\\s*\\S+' strings.txt # API keys
     grep -aP  'ssh-[rd]sa [A-Za-z0-9+/]+' strings.txt  # SSH keys
     grep -aP  'BEGIN .{0,30}PRIVATE KEY' strings.txt   # PEM keys
+    grep -aP  '[A-Za-z0-9+/]{40,}={0,2}' strings.txt  # base64
+    grep -oP  '[0-9a-f]{32,64}\\b'       strings.txt   # hashes (MD5/SHA)
+    grep -aiP 'https?://[^\\s"<>]+'      strings.txt   # URLs
 
 ## Step 6 — Tool chaining workflow
     1) pslist  → identify interesting PIDs
     2) cmdline → confirm what process is running
     3) proc.Maps <PID> → locate writable heap/stack regions
     4) dump_map <PID>  → dump them
-    5) strings <dump>  → grep for flag
+    5) strings <dump>  → grep for indicators
 
 ## Tip — Volatility symbol packs
     If vol fails with "No suitable address space", you need a symbol pack.
@@ -667,11 +670,11 @@ CHEATSHEET_STRINGS = """
     strings -n 8 dump.raw > strings.txt          # ASCII, min 8 chars
     strings -el dump.raw >> strings.txt          # little-endian UTF-16
 
-## Flag patterns
-    grep -aP 'flag\\{[^}]+\\}'    strings.txt
-    grep -aiP 'htb\\{[^}]+\\}'    strings.txt
-    grep -aiP 'picoctf\\{[^}]+\\}' strings.txt
-    grep -aiP 'thm\\{[^}]+\\}'    strings.txt
+## Common indicator patterns
+    grep -aiP 'password\\s*[=:]\\s*\\S+'     strings.txt
+    grep -aiP 'secret\\s*[=:]\\s*\\S+'       strings.txt
+    grep -aiP 'api[_-]?key\\s*[=:]\\s*\\S+'  strings.txt
+    grep -aiP 'token\\s*[=:]\\s*\\S+'        strings.txt
 
 ## Credentials
     grep -aiP 'password\\s*[=:]\\s*\\S+'  strings.txt | head -50
@@ -699,7 +702,7 @@ CHEATSHEET_STRINGS = """
     echo "BASE64HERE" | base64 -d
 
 ## Direct dump grep (byte-offset aware, no strings needed)
-    grep -boa -P '[\\x20-\\x7e]{8,}' dump.raw | grep -iP 'flag\\{'
+    grep -boa -P '[\\x20-\\x7e]{8,}' dump.raw | grep -iP 'password|secret'
 
 ## Bulk extractor (automatic artefact carving)
     bulk_extractor -o be_out/ dump.raw
@@ -747,7 +750,7 @@ CHEATSHEET_TOOLS = """
 
 ## radare2  — binary analysis / scripted memory search
     r2 dump.raw
-    [0x00000000]> /i flag{         # case-insensitive search
+    [0x00000000]> /i password       # case-insensitive search
     [0x00000000]> ps @ hit0_0      # print string at hit
 
 ## pypykatz  — credential extraction (Windows dumps, LSASS)
@@ -756,7 +759,7 @@ CHEATSHEET_TOOLS = """
 
 ## Rekall  (legacy, Volatility 2 fork)
     pip3 install rekall
-    rekal -f dump.raw pslist
+    rekall -f dump.raw pslist
 
 ## VM memory acquisition
     # VMware: copy .vmem file directly — it IS the dump
@@ -772,7 +775,7 @@ CHEATSHEET_TOOLS = """
 ## Online resources
     Volatility docs:   https://volatility3.readthedocs.io
     Symbol packs:      https://github.com/volatilityfoundation/volatility3/releases
-    CTF writeups:      https://github.com/search?q=volatility+CTF+writeup
+    Forensic writeups: https://github.com/search?q=volatility+forensics+writeup
     MemLabs (practice): https://github.com/stuxnet999/MemLabs
 """
 
@@ -780,7 +783,7 @@ CHEATSHEET_TOOLS = """
 def show_cheatsheet(name: str) -> None:
     sheets = {
         "vol3":    (CHEATSHEET_VOL3,    "Volatility 3 Quick Reference"),
-        "ctf":     (CHEATSHEET_CTF,     "CTF Memory Forensics Workflow"),
+        "workflow": (CHEATSHEET_WORKFLOW,     "Memory Forensics Workflow"),
         "strings": (CHEATSHEET_STRINGS, "Strings & grep Without Volatility"),
         "tools":   (CHEATSHEET_TOOLS,   "Companion Tools"),
     }
@@ -823,7 +826,7 @@ MAIN_MENU = [
     ("?",  "Help",                   "Usage tips + full Volatility plugin list"),
     ("",   "",                       ""),
     ("cs1","Cheat Sheet: Volatility 3","Full plugin reference"),
-    ("cs2","Cheat Sheet: CTF Workflow","Flag hunting strategies & tips"),
+    ("cs2","Cheat Sheet: Forensic Workflow","String hunting strategies & tips"),
     ("cs3","Cheat Sheet: Strings/grep","No-Volatility string analysis"),
     ("cs4","Cheat Sheet: Tools",       "Companion forensics tools"),
     ("",   "",                         ""),
@@ -914,10 +917,10 @@ def quick_triage() -> None:
                 cprint(f"  [-] {plugin_name:<32}  (no output / failed)", "dim")
 
     # ── Phase 2: strings-based sweep (only if user set a search pattern) ─
-    if FLAG_FORMAT:
+    if SEARCH_PATTERN:
         cprint(f"\n{'─'*50}", "dim")
         cprint("\n[*] Phase 2: Strings-based search sweep …\n", "yellow")
-        _hunt_flags_strings()
+        _hunt_strings_dump()
     else:
         cprint(f"\n{'─'*50}", "dim")
         cprint("\n[*] Phase 2: Skipping string sweep — no search pattern set ([f] to set one).", "dim")
@@ -967,7 +970,7 @@ def process_analysis() -> None:
         ("2", "pstree      — parent/child tree"),
         ("3", "psaux       — processes with full argv"),
         ("4", "cmdline     — command lines for all PIDs"),
-        ("5", "envars      — environment variables  [FLAG goldmine]"),
+        ("5", "envars      — environment variables  [high-value]"),
         ("6", "envars grep — search envars for a keyword"),
         ("7", "proc.Maps   — memory maps for a specific PID"),
         ("8", "malfind     — detect injected / unsigned pages"),
@@ -986,7 +989,7 @@ def process_analysis() -> None:
 
 
 def _envars_grep() -> None:
-    kw = ask("Keyword to search in envars (e.g. FLAG, pass, secret)", "FLAG")
+    kw = ask("Keyword to search in envars (e.g. password, secret, key)", "secret")
     if not kw:
         return
     out = run_vol("linux.envars", "", "envars.txt")
@@ -1050,7 +1053,7 @@ def _find_file_prompt() -> None:
     run_vol("linux.find_file", f"--find {path}", "find_custom.txt")
 
 
-def credential_flag_hunt() -> None:
+def credential_string_hunt() -> None:
     header("Credential & String Hunt")
     cprint("[*] Targets common credential and string-pattern locations.\n", "yellow")
     cprint("    [vol] = needs Volatility + real dump   [str] = works on any dump\n", "dim")
@@ -1067,8 +1070,8 @@ def credential_flag_hunt() -> None:
     _submenu(opts, {
         "1": _run_bash_history,
         "2": _run_envars_full,
-        "3": _hunt_flags_envars,
-        "4": _hunt_flags_strings,
+        "3": _hunt_strings_envars,
+        "4": _hunt_strings_dump,
         "5": _hunt_base64,
         "6": _hunt_creds_strings,
         "7": lambda: run_vol("linux.credentials", "", "credentials.txt"),
@@ -1124,13 +1127,13 @@ def _run_envars_full() -> None:
             cprint("[!] No KEY=VALUE env strings found.", "yellow")
 
 
-def _hunt_flags_envars() -> None:
-    pat = _ensure_flag_format()
+def _hunt_strings_envars() -> None:
+    pat = _ensure_search_pattern()
     out = run_vol("linux.envars", "", "envars.txt")
 
     if _vol_failed(out):
         cprint("\n[!] Volatility envars failed — falling back to raw strings scan …", "yellow")
-        _hunt_flags_strings()
+        _hunt_strings_dump()
         return
 
     hits = [l for l in out.splitlines() if re.search(pat, l, re.I)]
@@ -1138,17 +1141,17 @@ def _hunt_flags_envars() -> None:
         cprint(f"\n[+] Pattern '{pat}' in envars:", "bold green")
         for h in hits:
             cprint(f"  {h}", "yellow")
-        save_result("flag_envars.txt", "\n".join(hits))
+        save_result("search_envars.txt", "\n".join(hits))
     else:
         cprint(f"[!] Pattern '{pat}' not found in envars.", "yellow")
         cprint("[>] Falling back to raw strings scan …", "dim")
-        _hunt_flags_strings()
+        _hunt_strings_dump()
 
 
-def _hunt_flags_strings() -> None:
+def _hunt_strings_dump() -> None:
     if not DUMP_PATH:
         return
-    pat = _ensure_flag_format()
+    pat = _ensure_search_pattern()
     cprint(f"[*] Running strings against the dump for /{pat}/ — may take a minute …", "yellow")
 
     dump = shlex.quote(DUMP_PATH)
@@ -1167,11 +1170,11 @@ def _hunt_flags_strings() -> None:
         cprint(f"\n[+] Found {len(hits)} unique match(es):", "bold green")
         for h in hits:
             cprint(f"  {h}", "bold yellow")
-            _record_hit("flag", h, "strings")
-        save_result("flag_hits.txt", "\n".join(hits))
+            _record_hit("search", h, "strings")
+        save_result("search_hits.txt", "\n".join(hits))
     else:
         cprint(f"[!] Pattern '{pat}' not found in raw strings.", "yellow")
-        cprint("[>] Try option 5 (base64) — the flag might be encoded.", "dim")
+        cprint("[>] Try option 5 (base64) — the data might be encoded.", "dim")
 
 
 def _hunt_base64() -> None:
@@ -1273,7 +1276,7 @@ def strings_search() -> None:
     _submenu(opts, {
         "1": _strings_custom,
         "2": _strings_extract_all,
-        "3": _hunt_flags_strings,
+        "3": _hunt_strings_dump,
         "4": _strings_network,
         "5": _hunt_base64,
     })
@@ -1282,7 +1285,7 @@ def strings_search() -> None:
 def _strings_custom() -> None:
     if not DUMP_PATH:
         return
-    pat = ask("Regex pattern (grep -oiP syntax, e.g. flag\\{[^}]+\\})")
+    pat = ask("Regex pattern (grep -oiP syntax, e.g. password|secret)")
     if not pat:
         return
     try:
@@ -1317,7 +1320,7 @@ def _strings_extract_all() -> None:
         cprint(f"[+] Saved {size_kb:,} KB → {out_file}", "bold green")
     except OSError as e:
         cprint(f"[!] Could not stat output file: {e}", "red")
-    cprint("[>] Tip: grep -aP 'flag\\{' all_strings.txt", "dim")
+    cprint("[>] Tip: grep -aiP 'password|secret' all_strings.txt", "dim")
 
 
 def _strings_network() -> None:
@@ -1472,7 +1475,7 @@ _CATEGORY_MAP = {
     "filesystem": {"filescan", "find_file", "inode_cache", "mftscan",
                    "hivelist"},
     "credentials":{"credential_hits", "hashdump", "credentials",
-                   "pypykatz", "flag_hits", "flag_envars", "base64_candidates"},
+                   "pypykatz", "search_hits", "search_envars", "base64_candidates"},
     "kernel":     {"lsmod", "modules", "modscan", "check_modules",
                    "check_syscall", "check_idt", "ssdt", "tty_check",
                    "kernel_log"},
@@ -1513,8 +1516,8 @@ def _classify_file(name: str) -> tuple[str, str, str]:
     suspect_markers = ("credential", "hashdump", "envars",
                        "netstat", "netscan", "svcscan", "cmdline",
                        "base64", "pypykatz", "yara")
-    if "flag" in n:
-        return ("CRITICAL", "FLAG", "sev-flag")
+    if "search_hits" in n:
+        return ("CRITICAL", "MATCH", "sev-flag")
     if any(m in n for m in rootkit_markers):
         return ("HIGH", "ROOTKIT?", "sev-rootkit")
     if any(m in n for m in suspect_markers):
@@ -1618,7 +1621,7 @@ def generate_report() -> None:
         f.write("# memhunter Report\n\n")
         f.write(f"- **Dump:** `{DUMP_PATH}`\n")
         f.write(f"- **OS:** {OS_TYPE}\n")
-        f.write(f"- **String Search:** `{FLAG_FORMAT or 'n/a'}`\n")
+        f.write(f"- **String Search:** `{SEARCH_PATTERN or 'n/a'}`\n")
         f.write(f"- **Generated:** {datetime.now().isoformat()}\n\n")
         f.write("## Contents\n\n")
         for tf in files:
@@ -2032,7 +2035,7 @@ def generate_report() -> None:
             cat = h.get("category", "")
             val = _h.escape(str(h.get("value", "")))
             src = _h.escape(str(h.get("source", "")))
-            cat_css = "sev-flag" if cat == "flag" else (
+            cat_css = "sev-flag" if cat == "search" else (
                 "sev-rootkit" if cat == "yara" else "sev-suspect")
             hit_rows += (
                 f'<tr class="{cat_css}">'
@@ -2049,7 +2052,7 @@ def generate_report() -> None:
     ts_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     dump_esc = _h.escape(str(DUMP_PATH) if DUMP_PATH else 'n/a')
     os_esc = _h.escape(OS_TYPE or 'n/a')
-    search_esc = _h.escape(FLAG_FORMAT or 'n/a')
+    search_esc = _h.escape(SEARCH_PATTERN or 'n/a')
 
     page = f"""\
 <!DOCTYPE html>
@@ -2262,8 +2265,32 @@ body.light-theme .proc-search {{
 }}
 body.light-theme .proc-search::placeholder {{ color: #6a7090; }}
 
-/* -- light: nav items (sidebar stays dark, but active highlights) -- */
-body.light-theme .nav-item.active {{ background: rgba(0,240,255,.12); }}
+/* -- light: nav items (sidebar stays dark, override dark text vars) -- */
+body.light-theme .nav-section {{ color: #00c8e0; opacity: .6; }}
+body.light-theme .nav-item {{ color: #c8cce0; }}
+body.light-theme .nav-item:hover {{
+  background: rgba(0,240,255,.08); border-left-color: #00e0ff; color: #00e0ff;
+}}
+body.light-theme .nav-item.active {{
+  background: linear-gradient(90deg, rgba(0,240,255,.14) 0%, transparent 100%);
+  border-left-color: #00e0ff; color: #00e0ff; text-shadow: 0 0 8px rgba(0,224,255,.3);
+}}
+body.light-theme .alert-dot {{ background: #ff3355; box-shadow: 0 0 8px rgba(255,51,85,.4); }}
+body.light-theme .sidebar-brand h1 {{
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(90deg, #00e0ff, #ff00e5, #00e0ff);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+}}
+body.light-theme .sidebar-brand .sub {{ color: #8088a8; }}
+body.light-theme .sidebar-brand::after {{ background: linear-gradient(90deg, transparent, #00c8e0, transparent); }}
+body.light-theme .nav-plugin {{ color: #8890a8; }}
+body.light-theme .nav-plugin:hover {{ color: #00e0ff; border-left-color: #00e0ff; }}
+body.light-theme .nav-plugin.active {{ color: #00e0ff; border-left-color: #00e0ff; }}
+body.light-theme .badge-sm.sev-flag {{ background: rgba(0,255,136,.12); color: #00ff88; }}
+body.light-theme .badge-sm.sev-rootkit {{ background: rgba(255,34,68,.12); color: #ff4466; }}
+body.light-theme .badge-sm.sev-suspect {{ background: rgba(255,136,0,.12); color: #ff9922; }}
+body.light-theme .badge-sm.sev-info {{ background: rgba(68,136,255,.1); color: #6699ff; }}
 
 /* -- light: hide animated background overlays -- */
 body.light-theme::before {{ display: none; }}
@@ -3224,7 +3251,7 @@ tr.sev-suspect {{ background: rgba(255,136,0,.04); }}
     <div class="dash-grid">
       <div class="stat-card sc-flag">
         <div class="num">{sev_counts['CRITICAL']}</div>
-        <div class="stat-label">Flags</div>
+        <div class="stat-label">Critical</div>
       </div>
       <div class="stat-card sc-rootkit">
         <div class="num">{sev_counts['HIGH']}</div>
@@ -4474,7 +4501,7 @@ def export_json() -> None:
     payload = {
         "dump": DUMP_PATH,
         "os": OS_TYPE,
-        "string_search": FLAG_FORMAT,
+        "string_search": SEARCH_PATTERN,
         "generated": datetime.now().isoformat(),
         "hits": HITS_JSON,
     }
@@ -4498,8 +4525,8 @@ def _triage_summary() -> None:
         if not content:
             continue
         name = tf.name.lower()
-        if "flag" in name:
-            cprint(f"  [FLAG]     {tf.name}", "bold green")
+        if "search_hits" in name:
+            cprint(f"  [MATCH]    {tf.name}", "bold green")
         elif any(m in name for m in rootkit_markers):
             cprint(f"  [ROOTKIT?] {tf.name}", "bold red")
         elif any(m in name for m in suspect_markers):
@@ -4517,7 +4544,7 @@ def show_help() -> None:
   1. Load a dump (argv, or menu `d`)
   2. memhunter auto-detects OS — confirms Linux or Windows
   3. Enter a search pattern via [f] (e.g. `password|secret|admin`)
-  4. Run **[1] Quick Triage** — parallel plugin sweep + flag/cred strings
+  4. Run **[1] Quick Triage** — parallel plugin sweep + credential strings
   5. Inspect `results_*/` — severity summary flags the interesting files
   6. **[r]** Report  — stitch everything into `report.md` / `report.html`
   7. **[j]** JSON    — export structured `hits.json` for scoreboards
@@ -4529,7 +4556,7 @@ def show_help() -> None:
   [2] Process Analysis — drill into a PID (Linux: envars/Maps; Windows: vadinfo/dumpfiles)
   [3] Network Analysis — who was talking to whom
   [4] File System Hunting — find files in VFS/MFT cache
-  [5] Credential & Flag Hunt — most CTF flags live here
+  [5] Credential & String Hunt — credentials, secrets, patterns
   [6] Kernel / Rootkit Check — module/syscall/IDT integrity
   [7] Strings Search — works on *any* dump, no Volatility required
   [8] Custom Plugin — run any Volatility plugin verbatim
@@ -4642,10 +4669,11 @@ def main() -> None:
     global DUMP_PATH, OUT_DIR, VOL_CMD
 
     parser = argparse.ArgumentParser(
-        description="memhunter — Interactive Memory Forensics for CTF (Linux + Windows)",
+        description="memhunter �� Interactive Memory Forensics Toolkit (Linux + Windows)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    parser.add_argument("--version", action="version", version=f"memhunter {VERSION}")
     parser.add_argument("dump", nargs="?", help="Memory dump file to analyse")
     parser.add_argument("--install", action="store_true",
                         help="Install/update Volatility 3 from GitHub and exit")
@@ -4692,9 +4720,9 @@ def main() -> None:
             cprint(f"  Out  : [cyan]{OUT_DIR.resolve() if OUT_DIR else 'none'}[/cyan]",
                    "dim") if RICH else \
             print(f"  Out  : {OUT_DIR.resolve() if OUT_DIR else 'none'}")
-            cprint(f"  OS   : [cyan]{OS_TYPE}[/cyan]    Search : [cyan]{FLAG_FORMAT or '(not set)'}[/cyan]\n",
+            cprint(f"  OS   : [cyan]{OS_TYPE}[/cyan]    Search : [cyan]{SEARCH_PATTERN or '(not set)'}[/cyan]\n",
                    "dim") if RICH else \
-            print(f"  OS   : {OS_TYPE}    Search : {FLAG_FORMAT or '(not set)'}\n")
+            print(f"  OS   : {OS_TYPE}    Search : {SEARCH_PATTERN or '(not set)'}\n")
         else:
             cprint("\n  [!] No dump loaded — use option [d] to select a file\n", "yellow")
 
@@ -4708,12 +4736,12 @@ def main() -> None:
         elif choice == "2":   process_analysis()
         elif choice == "3":   network_analysis()
         elif choice == "4":   file_hunting()
-        elif choice == "5":   credential_flag_hunt()
+        elif choice == "5":   credential_string_hunt()
         elif choice == "6":   kernel_rootkit_check()
         elif choice == "7":   strings_search()
         elif choice == "8":   custom_plugin()
         elif choice == "cs1": show_cheatsheet("vol3")
-        elif choice == "cs2": show_cheatsheet("ctf")
+        elif choice == "cs2": show_cheatsheet("workflow")
         elif choice == "cs3": show_cheatsheet("strings")
         elif choice == "cs4": show_cheatsheet("tools")
         elif choice == "i":
@@ -4736,7 +4764,7 @@ def main() -> None:
         elif choice == "o":
             _select_os()
         elif choice == "f":
-            _prompt_flag_format()
+            _prompt_search_pattern()
         else:
             cprint("[!] Unknown option.", "red")
 

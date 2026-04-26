@@ -4,7 +4,7 @@ Interactive memory forensics toolkit — works on both **Linux** and **Windows**
 memory dumps. Built for incident response, malware analysis, and forensic
 investigations.
 
-**Author:** [Mohd Alkafween](https://github.com/MohdAlkafaween)  
+**Author:** [Mohd Alkafaween](https://github.com/MohdAlkafaween)  
 **Version:** 2.1.0
 
 | Component | Purpose |
@@ -104,6 +104,7 @@ python3 memhunter.py                        # interactive, prompts for dump
 python3 memhunter.py dump.raw               # load dump on startup
 python3 memhunter.py dump.raw --json        # auto-export hits.json on exit
 python3 memhunter.py --install              # install/update Volatility 3
+python3 memhunter.py --version              # print version and exit
 ```
 
 ### Menu Overview

@@ -9,6 +9,7 @@
 
 # Auto-generated results directories
 results_*/
+hits.json
 
 # Kernel module build artefacts
 *.ko

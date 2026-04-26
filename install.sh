@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — One-shot setup for linux-mem-forensics + memhunter
+# install.sh — One-shot setup for memhunter
 # ==============================================================
 # Installs:
 #   1. Build tools and kernel headers  (for memdump.ko)
@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
-echo "  ║   linux-mem-forensics  ·  Setup Script       ║"
+echo "  ║   memhunter  ·  Setup Script                  ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 
