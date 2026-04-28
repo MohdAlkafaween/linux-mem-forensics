@@ -125,8 +125,13 @@ static void log_sha256(const u8 *running_hash, unsigned int digest_len)
     char hex[65];   /* 32 bytes * 2 hex chars + NUL */
     int i;
 
+    if (digest_len != 32) {
+        pr_err(MEMDUMP_TAG "unexpected digest length %u, expected 32\n",
+               digest_len);
+        return;
+    }
     for (i = 0; i < (int)digest_len; i++)
-        sprintf(&hex[i * 2], "%02x", running_hash[i]);
+        snprintf(&hex[i * 2], 3, "%02x", running_hash[i]);
     hex[64] = '\0';
 
     pr_info(MEMDUMP_TAG "SHA-256 of dump: %s\n", hex);

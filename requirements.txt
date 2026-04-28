@@ -1,0 +1,3 @@
+rich>=13.9,<14
+yara-python>=4.5,<5
+pycryptodome>=3.19,<4

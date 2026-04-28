@@ -23,6 +23,7 @@ import re
 import signal
 import shlex
 import shutil
+import tempfile
 import subprocess
 import sys
 from datetime import datetime
@@ -397,7 +398,7 @@ def setup_output_dir(dump_path: str) -> Path:
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     name = Path(dump_path).stem
     out  = Path(f"results_{name}_{ts}")
-    out.mkdir(exist_ok=True)
+    out.mkdir(mode=0o700, exist_ok=True)
     cprint(f"[+] Output directory: {out.resolve()}", "green")
     return out
 
@@ -459,7 +460,7 @@ def run_vol(plugin: str, extra_args: str = "", save_as: str = "") -> str:
     if plugin == "windows.filescan" and "--find" in extra_args:
         extra_args = ""
 
-    cmd = f"{VOL_CMD} -f \"{DUMP_PATH}\" {plugin} {extra_args}".strip()
+    cmd = f"{VOL_CMD} -f {shlex.quote(DUMP_PATH)} {plugin} {extra_args}".strip()
     cprint(f"\n[>] {cmd}", "dim")
 
     if RICH:
@@ -1050,7 +1051,7 @@ def file_hunting() -> None:
 
 def _find_file_prompt() -> None:
     path = ask("Enter file or directory path", "/etc/passwd")
-    run_vol("linux.find_file", f"--find {path}", "find_custom.txt")
+    run_vol("linux.find_file", f"--find {shlex.quote(path)}", "find_custom.txt")
 
 
 def credential_string_hunt() -> None:
@@ -1121,8 +1122,19 @@ def _run_envars_full() -> None:
         cmd  = f"strings -n 6 {dump} | grep -oP {pat} | sort -u | head -60"
         r = run_shell(cmd)
         if r and r.stdout.strip():
-            cprint(r.stdout, "yellow")
-            save_result("envars_strings.txt", r.stdout)
+            _SENSITIVE_KEYS = re.compile(
+                r"^(PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|AWS_SECRET|AZURE_|"
+                r"PRIVATE_KEY|CREDENTIAL|AUTH_TOKEN)=",
+                re.IGNORECASE,
+            )
+            lines = r.stdout.strip().splitlines()
+            redacted = [
+                re.sub(r"=.*", "=<REDACTED>", ln) if _SENSITIVE_KEYS.match(ln) else ln
+                for ln in lines
+            ]
+            output = "\n".join(redacted)
+            cprint(output, "yellow")
+            save_result("envars_strings.txt", output)
         else:
             cprint("[!] No KEY=VALUE env strings found.", "yellow")
 
@@ -1361,7 +1373,11 @@ def custom_plugin() -> None:
         return
     parts = plugin_input.strip().split(None, 1)
     plugin = parts[0]
-    args   = parts[1] if len(parts) > 1 else ""
+    if not re.fullmatch(r"[A-Za-z0-9_.]+", plugin):
+        cprint("[!] Invalid plugin name — only letters, digits, dots, and underscores allowed.", "red")
+        return
+    raw_args = parts[1] if len(parts) > 1 else ""
+    args = " ".join(shlex.quote(a) for a in shlex.split(raw_args)) if raw_args else ""
     run_vol(plugin, args, f"custom_{plugin.replace('.','_')}.txt")
 
 
@@ -1425,7 +1441,7 @@ def _auto_detect_os() -> None:
         _select_os()
         return
     cprint("\n[*] Auto-detecting OS via banners.Banners …", "yellow")
-    r = run_shell(f"{VOL_CMD} -f \"{DUMP_PATH}\" banners.Banners", timeout=240)
+    r = run_shell(f"{VOL_CMD} -f {shlex.quote(DUMP_PATH)} banners.Banners", timeout=240)
     blob = ((r.stdout if r else "") + (r.stderr if r else "")) if r else ""
     if "Linux version" in blob:
         OS_TYPE = "linux"
@@ -1451,7 +1467,7 @@ def run_vol_quiet(plugin: str, extra_args: str = "", timeout: int = 300) -> tupl
     plugin = mapped
     if plugin == "windows.filescan" and "--find" in extra_args:
         extra_args = ""
-    cmd = f"{VOL_CMD} -f \"{DUMP_PATH}\" {plugin} {extra_args}".strip()
+    cmd = f"{VOL_CMD} -f {shlex.quote(DUMP_PATH)} {plugin} {extra_args}".strip()
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True,
                            text=True, timeout=timeout)
@@ -1619,7 +1635,7 @@ def generate_report() -> None:
     md = OUT_DIR / "report.md"
     with md.open("w") as f:
         f.write("# memhunter Report\n\n")
-        f.write(f"- **Dump:** `{DUMP_PATH}`\n")
+        f.write(f"- **Dump:** `{Path(DUMP_PATH).name}`\n")
         f.write(f"- **OS:** {OS_TYPE}\n")
         f.write(f"- **String Search:** `{SEARCH_PATTERN or 'n/a'}`\n")
         f.write(f"- **Generated:** {datetime.now().isoformat()}\n\n")
@@ -1701,7 +1717,7 @@ def generate_report() -> None:
         for tf, sev, label, css in categorized[cat]:
             sidebar_plugins += (
                 f'<a class="nav-plugin {css}" data-page="plugin-{tf.stem.lower()}" '
-                f'onclick="showPage(\'plugin-{tf.stem.lower()}\')">'
+                f'onclick="showPage({json.dumps("plugin-" + tf.stem.lower())})">'
                 f'<span class="badge-sm {css}">{label}</span> {_h.escape(tf.stem)}</a>\n'
             )
         sidebar_plugins += '</div>\n'
@@ -1720,7 +1736,7 @@ def generate_report() -> None:
                 continue
             lines = len(content.splitlines())
             cards += (
-                f'<div class="cat-card {css}" onclick="showPage(\'plugin-{tf.stem.lower()}\')">'
+                f'<div class="cat-card {css}" onclick="showPage({json.dumps("plugin-" + tf.stem.lower())})">'
                 f'<div class="cat-card-head"><span class="badge {css}">{label}</span>'
                 f'<span class="cat-card-name">{_h.escape(tf.stem)}</span></div>'
                 f'<div class="cat-card-meta">{lines} lines</div></div>\n'
@@ -1775,10 +1791,10 @@ def generate_report() -> None:
                 f'<span><i class="fas fa-layer-group"></i> '
                 f'<span class="cb-count">0</span> lines selected</span>'
                 f'<span class="cb-btn cb-confirm" '
-                f'onclick="confirmSelection(\'{_h.escape(tf.stem)}\')">'
+                f'onclick="confirmSelection({json.dumps(tf.stem)})">'
                 f'<i class="fas fa-check"></i> Confirm</span>'
                 f'<span class="cb-btn cb-cancel" '
-                f'onclick="cancelSelection(\'{_h.escape(tf.stem)}\')">'
+                f'onclick="cancelSelection({json.dumps(tf.stem)})">'
                 f'<i class="fas fa-times"></i> Cancel</span>'
                 f'</div>'
                 f'<div class="code-lines">'
@@ -1799,7 +1815,7 @@ def generate_report() -> None:
         if has_net:
             indicators += '<span class="badge sev-info">NET</span> '
         proc_rows += (
-            f'<tr class="{row_cls}" onclick="showPage(\'proc-{pid}\')" '
+            f'<tr class="{row_cls}" onclick="showPage({json.dumps("proc-" + pid)})" '
             f'style="cursor:pointer">'
             f'<td>{_h.escape(pid)}</td>'
             f'<td>{_h.escape(p["name"])}</td>'
@@ -1883,7 +1899,7 @@ def generate_report() -> None:
             child_html = f'<div class="tree-children">{child_items}</div>'
         return (
             f'<div class="{node_cls}">'
-            f'<div class="tree-label" onclick="showPage(\'proc-{_h.escape(pid)}\')" '
+            f'<div class="tree-label" onclick="showPage({json.dumps("proc-" + pid)})" '
             f'title="Click to view process details">'
             f'<span class="tree-pid">{_h.escape(pid)}</span>'
             f'<span class="tree-name">{name}</span>{badges}</div>'
@@ -2050,7 +2066,7 @@ def generate_report() -> None:
         )
 
     ts_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    dump_esc = _h.escape(str(DUMP_PATH) if DUMP_PATH else 'n/a')
+    dump_esc = _h.escape(Path(DUMP_PATH).name if DUMP_PATH else 'n/a')
     os_esc = _h.escape(OS_TYPE or 'n/a')
     search_esc = _h.escape(SEARCH_PATTERN or 'n/a')
 
@@ -2061,9 +2077,9 @@ def generate_report() -> None:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MEMHUNTER // FALCON Report</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
 
 :root {{
   --bg: #05060a; --bg2: #080a10; --surface: #0c0e18;
@@ -4266,7 +4282,7 @@ def _install_yara_rules() -> None:
     repo = next((r for r in repos if r[0] == choice), None)
     if not repo:
         return
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     cmd = ["git", "clone", "--depth", "1", repo[2], str(dest)]
     cprint(f"[>] {' '.join(shlex.quote(c) for c in cmd)}", "dim")
     try:
@@ -4383,14 +4399,21 @@ def yara_scan() -> None:
             return
         cprint(f"[*] Found {len(rule_files)} rule file(s) under {rp}"
                + (f" (skipped {skipped} index/deprecated)" if skipped else ""), "cyan")
-        index_file = (OUT_DIR / "_yara_index.yar") if OUT_DIR else Path("/tmp/_yara_index.yar")
+        idx_dir = str(OUT_DIR) if OUT_DIR else None
+        fd, idx_path = tempfile.mkstemp(suffix=".yar", prefix="yara_index_", dir=idx_dir)
+        index_file = Path(idx_path)
+        os.close(fd)
         index_file.write_text("".join(f'include "{f}"\n' for f in rule_files))
         rules_arg = shlex.quote(str(index_file))
     else:
         rules_arg = shlex.quote(str(rp))
     cmd = f"yara -w -s {rules_arg} {shlex.quote(DUMP_PATH)}"
     cprint(f"[>] {cmd}", "dim")
-    r = run_shell(cmd, timeout=1200)
+    try:
+        r = run_shell(cmd, timeout=1200)
+    finally:
+        if index_file and index_file.exists():
+            index_file.unlink()
     if r is None:
         return
     if r.returncode != 0:
@@ -4464,10 +4487,10 @@ def pypykatz_run() -> None:
         cprint("[!] Invalid PID.", "red")
         return
     dump_dir = OUT_DIR / f"lsass_pid{pid}"
-    dump_dir.mkdir(exist_ok=True)
+    dump_dir.mkdir(mode=0o700, exist_ok=True)
     cprint("[*] Dumping LSASS memory via windows.memmap …", "yellow")
     cmd = (f"cd {shlex.quote(str(dump_dir))} && "
-           f"{VOL_CMD} -f \"{DUMP_PATH}\" windows.memmap --dump --pid {pid}")
+           f"{VOL_CMD} -f {shlex.quote(DUMP_PATH)} windows.memmap --dump --pid {pid}")
     r = run_shell(cmd, timeout=900)
     if r is None:
         return
