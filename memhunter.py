@@ -1717,7 +1717,7 @@ def generate_report() -> None:
         for tf, sev, label, css in categorized[cat]:
             sidebar_plugins += (
                 f'<a class="nav-plugin {css}" data-page="plugin-{tf.stem.lower()}" '
-                f'onclick="showPage({json.dumps("plugin-" + tf.stem.lower())})">'
+                f'onclick="showPage({_h.escape(json.dumps("plugin-" + tf.stem.lower()))})">'
                 f'<span class="badge-sm {css}">{label}</span> {_h.escape(tf.stem)}</a>\n'
             )
         sidebar_plugins += '</div>\n'
@@ -1736,7 +1736,7 @@ def generate_report() -> None:
                 continue
             lines = len(content.splitlines())
             cards += (
-                f'<div class="cat-card {css}" onclick="showPage({json.dumps("plugin-" + tf.stem.lower())})">'
+                f'<div class="cat-card {css}" onclick="showPage({_h.escape(json.dumps("plugin-" + tf.stem.lower()))})">'
                 f'<div class="cat-card-head"><span class="badge {css}">{label}</span>'
                 f'<span class="cat-card-name">{_h.escape(tf.stem)}</span></div>'
                 f'<div class="cat-card-meta">{lines} lines</div></div>\n'
@@ -1791,10 +1791,10 @@ def generate_report() -> None:
                 f'<span><i class="fas fa-layer-group"></i> '
                 f'<span class="cb-count">0</span> lines selected</span>'
                 f'<span class="cb-btn cb-confirm" '
-                f'onclick="confirmSelection({json.dumps(tf.stem)})">'
+                f'onclick="confirmSelection({_h.escape(json.dumps(tf.stem))})">'
                 f'<i class="fas fa-check"></i> Confirm</span>'
                 f'<span class="cb-btn cb-cancel" '
-                f'onclick="cancelSelection({json.dumps(tf.stem)})">'
+                f'onclick="cancelSelection({_h.escape(json.dumps(tf.stem))})">'
                 f'<i class="fas fa-times"></i> Cancel</span>'
                 f'</div>'
                 f'<div class="code-lines">'
@@ -1815,7 +1815,7 @@ def generate_report() -> None:
         if has_net:
             indicators += '<span class="badge sev-info">NET</span> '
         proc_rows += (
-            f'<tr class="{row_cls}" onclick="showPage({json.dumps("proc-" + pid)})" '
+            f'<tr class="{row_cls}" onclick="showPage({_h.escape(json.dumps("proc-" + pid))})" '
             f'style="cursor:pointer">'
             f'<td>{_h.escape(pid)}</td>'
             f'<td>{_h.escape(p["name"])}</td>'
@@ -1899,7 +1899,7 @@ def generate_report() -> None:
             child_html = f'<div class="tree-children">{child_items}</div>'
         return (
             f'<div class="{node_cls}">'
-            f'<div class="tree-label" onclick="showPage({json.dumps("proc-" + pid)})" '
+            f'<div class="tree-label" onclick="showPage({_h.escape(json.dumps("proc-" + pid))})" '
             f'title="Click to view process details">'
             f'<span class="tree-pid">{_h.escape(pid)}</span>'
             f'<span class="tree-name">{name}</span>{badges}</div>'
